@@ -7,14 +7,59 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
-func RequestHandler(w http.ResponseWriter, req *http.Request, dir *string, log int) {
+type Cache struct {
+	mu    sync.RWMutex
+	cache map[string][]byte
+}
+
+func (c *Cache) Get(key *string) []byte {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.cache[*key]
+}
+
+func (c *Cache) Add(key *string, bytes []byte) {
+	cachedFile := c.cache[*key]
+	c.cache[*key] = append(cachedFile, bytes...)
+}
+
+func RequestHandler(
+	w http.ResponseWriter,
+	req *http.Request,
+	dir *string,
+	log int,
+	cache *Cache,
+	cacheEnabled bool,
+) {
 	start := time.Now()
+	status := http.StatusOK
 
 	safePath := filepath.Clean(req.URL.Path)
 	file := filepath.Join(*dir, safePath)
+
+	if cacheEnabled {
+		if cachedFile := cache.Get(&file); cachedFile != nil {
+			bytes, err := w.Write(cachedFile)
+
+			if err != nil {
+				if bytes > 0 {
+					status = http.StatusPartialContent
+				} else {
+					status = http.StatusBadGateway
+				}
+			}
+
+			logRequest(req, &start, status, bytes, log)
+			return
+		}
+
+		cache.mu.Lock()
+		defer cache.mu.Unlock()
+	}
 
 	openFile, err := os.OpenFile(file, os.O_RDONLY, os.ModePerm)
 	if err != nil {
@@ -30,10 +75,8 @@ func RequestHandler(w http.ResponseWriter, req *http.Request, dir *string, log i
 		}
 	}()
 
-	buf := make([]byte, 256*1024)
+	buf := make([]byte, 128*1024)
 	size := 0
-
-	status := http.StatusOK
 	for {
 		bytes, err := openFile.Read(buf)
 
@@ -46,10 +89,10 @@ func RequestHandler(w http.ResponseWriter, req *http.Request, dir *string, log i
 			break
 		}
 
-		bytes, err = w.Write(buf[:bytes])
+		bytesWritten, err := w.Write(buf[:bytes])
 
 		if err != nil {
-			if bytes > 0 {
+			if bytesWritten > 0 {
 				status = http.StatusPartialContent
 				logRequest(req, &start, status, bytes, log)
 			} else {
@@ -59,7 +102,11 @@ func RequestHandler(w http.ResponseWriter, req *http.Request, dir *string, log i
 			return
 		}
 
-		size += bytes
+		if cacheEnabled {
+			cache.Add(&file, buf[:bytes])
+		}
+
+		size += bytesWritten
 	}
 
 	logRequest(req, &start, status, size, log)
@@ -97,9 +144,11 @@ func main() {
 	port := ""
 	dir := ""
 	logLevel := ""
+	cacheEnabled := false
 	flag.StringVar(&port, "p", "8000", "Serve on custom port (go-serve -p 3000)\n •")
 	flag.StringVar(&dir, "d", ".", "Directory to serve (go-serve -d ./website)\n •")
 	flag.StringVar(&logLevel, "l", "Warn", "Set global log level threshold.\nOverrides Logging header in requests if Logging header has a higher log level threshold (go-serve -l Info)\n • Options: Error/Info/Warn")
+	flag.BoolVar(&cacheEnabled, "c", false, "Enable caching files in memory (go-serve -c)")
 	flag.Parse()
 
 	log := 300
@@ -112,8 +161,13 @@ func main() {
 		log = 200
 	}
 
+	var cache Cache
+	if cacheEnabled {
+		cache = Cache{sync.RWMutex{}, make(map[string][]byte)}
+	}
+
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
-		RequestHandler(w, req, &dir, log)
+		RequestHandler(w, req, &dir, log, &cache, cacheEnabled)
 	})
 
 	fmt.Fprintf(os.Stderr, "Serving directory %s on http://localhost:%s\n", dir, port)
