@@ -117,5 +117,8 @@ func main() {
 	})
 
 	fmt.Fprintf(os.Stderr, "Serving directory %s on http://localhost:%s\n", dir, port)
-	http.ListenAndServe(":"+port, nil)
+	err := http.ListenAndServe(":"+port, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error while starting server listener on port %s\n • Error Message: %s\n", port, err)
+	}
 }
