@@ -11,20 +11,30 @@ import (
 	"time"
 )
 
+type CacheEntry struct {
+	mu       sync.RWMutex
+	isLoaded bool
+	data     []byte
+}
+
 type Cache struct {
-	mu    sync.RWMutex
-	cache map[string][]byte
+	mu    sync.Mutex
+	files map[string]*CacheEntry
 }
 
-func (c *Cache) Get(key *string) []byte {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.cache[*key]
-}
+func (c *Cache) Get(file *string) *CacheEntry {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-func (c *Cache) Add(key *string, bytes []byte) {
-	cachedFile := c.cache[*key]
-	c.cache[*key] = append(cachedFile, bytes...)
+	entry := c.files[*file]
+
+	if entry == nil {
+		c.files[*file] = &CacheEntry{sync.RWMutex{}, false, nil}
+
+		return c.files[*file]
+	}
+
+	return entry
 }
 
 func RequestHandler(
@@ -37,13 +47,19 @@ func RequestHandler(
 ) {
 	start := time.Now()
 	status := http.StatusOK
+	var cachedEntry *CacheEntry
 
 	safePath := filepath.Clean(req.URL.Path)
 	file := filepath.Join(*dir, safePath)
 
 	if cacheEnabled {
-		if cachedFile := cache.Get(&file); cachedFile != nil {
-			bytes, err := w.Write(cachedFile)
+		cachedFile := cache.Get(&file)
+
+		cachedFile.mu.RLock()
+
+		if cachedFile.isLoaded {
+			bytes, err := w.Write(cachedFile.data)
+			cachedFile.mu.RUnlock()
 
 			if err != nil {
 				if bytes > 0 {
@@ -57,8 +73,27 @@ func RequestHandler(
 			return
 		}
 
-		cache.mu.Lock()
-		defer cache.mu.Unlock()
+		cachedFile.mu.RUnlock()
+		cachedFile.mu.Lock()
+		cachedEntry = cachedFile
+		defer cachedEntry.mu.Unlock()
+
+		// double check if another goroutine built the cache
+		// while this goroutine was waiting for the write lock
+		if cachedEntry.isLoaded {
+			bytes, err := w.Write(cachedFile.data)
+
+			if err != nil {
+				if bytes > 0 {
+					status = http.StatusPartialContent
+				} else {
+					status = http.StatusBadGateway
+				}
+			}
+
+			logRequest(req, &start, status, bytes, log)
+			return
+		}
 	}
 
 	openFile, err := os.OpenFile(file, os.O_RDONLY, os.ModePerm)
@@ -103,12 +138,13 @@ func RequestHandler(
 		}
 
 		if cacheEnabled {
-			cache.Add(&file, buf[:bytes])
+			cachedEntry.data = append(cachedEntry.data, buf[:bytes]...)
 		}
 
 		size += bytesWritten
 	}
 
+	cachedEntry.isLoaded = true
 	logRequest(req, &start, status, size, log)
 }
 
@@ -148,7 +184,7 @@ func main() {
 	flag.StringVar(&port, "p", "8000", "Serve on custom port (go-serve -p 3000)\n •")
 	flag.StringVar(&dir, "d", ".", "Directory to serve (go-serve -d ./website)\n •")
 	flag.StringVar(&logLevel, "l", "Warn", "Set global log level threshold.\nOverrides Logging header in requests if Logging header has a higher log level threshold (go-serve -l Info)\n • Options: Error/Info/Warn")
-	flag.BoolVar(&cacheEnabled, "c", false, "Enable caching files in memory (go-serve -c)")
+	flag.BoolVar(&cacheEnabled, "c", false, "Enable caching files in memory (go-serve -c)\n •")
 	flag.Parse()
 
 	log := 300
@@ -163,7 +199,7 @@ func main() {
 
 	var cache Cache
 	if cacheEnabled {
-		cache = Cache{sync.RWMutex{}, make(map[string][]byte)}
+		cache = Cache{sync.Mutex{}, make(map[string]*CacheEntry)}
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
