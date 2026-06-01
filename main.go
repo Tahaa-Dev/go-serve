@@ -23,7 +23,25 @@ func TestHandler(
 	size := 50
 	start := time.Now()
 	status := http.StatusOK
-	var err error
+	bytes := 0
+	var outputErr error
+
+	defer func() {
+		logRequest(
+			LogMessage{
+				start,
+				time.Since(start),
+				req.URL.Path,
+				req.Method,
+				status,
+				bytes,
+				outputErr,
+			},
+			logChan,
+			logThreshold,
+			req.Header.Get("Logging"),
+		)
+	}()
 
 	if mb := req.URL.Query().Get("mb"); mb != "" {
 		n, err := fmt.Sscanf(mb, "%d", &size)
@@ -33,36 +51,59 @@ func TestHandler(
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", size*1024*1024))
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		status = http.StatusHTTPVersionNotSupported
+		outputErr = http.ErrNotSupported
+		return
+	}
 
-	bytes := 0
+	conn, rw, err := hijacker.Hijack()
+
+	if err != nil {
+		status = http.StatusExpectationFailed
+		outputErr = err
+		return
+	}
+
+	defer func() {
+		err := conn.Close()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Failed to close connection to hijacked test request")
+		}
+	}()
+
+	_ = conn.SetWriteDeadline(time.Time{})
+
+	_, err = fmt.Fprintf(
+		rw,
+		"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n",
+		size*1024*1024,
+	)
+	if err != nil {
+		status = http.StatusBadGateway
+		outputErr = err
+		return
+	}
+
+	err = rw.Flush()
+	if err != nil {
+		status = http.StatusBadGateway
+		outputErr = err
+		return
+	}
+
 	for i := 0; i < size*8; i++ {
-		n, newErr := w.Write(testGarbage)
+		n, err := rw.Write(testGarbage)
 
-		if newErr != nil {
+		if err != nil {
 			status = http.StatusBadGateway
-			err = newErr
+			outputErr = err
 			break
 		}
 
 		bytes += n
 	}
-
-	logRequest(
-		LogMessage{
-			start,
-			time.Since(start),
-			req.URL.Path,
-			req.Method,
-			status,
-			bytes,
-			err,
-		},
-		logChan,
-		logThreshold,
-		req.Header.Get("Logging"),
-	)
 }
 
 type CacheEntry struct {
@@ -122,7 +163,15 @@ func RequestHandler(
 
 	defer func() {
 		logRequest(
-			LogMessage{start, time.Since(start), req.URL.Path, req.Method, status, size, outputErr},
+			LogMessage{
+				start,
+				time.Since(start),
+				req.URL.Path,
+				req.Method,
+				status,
+				size,
+				outputErr,
+			},
 			opts.LogChan,
 			opts.LogThreshold,
 			req.Header.Get("Logging"),
@@ -156,8 +205,7 @@ func RequestHandler(
 		cachedEntry = cachedFile
 		defer cachedEntry.Mu.Unlock()
 
-		// double check if another goroutine built the cache
-		// while this goroutine was waiting for the write lock
+		// double check if another goroutine built the cache while this goroutine was waiting for the write lock
 		if cachedEntry.IsLoaded {
 			checkCache()
 			return
