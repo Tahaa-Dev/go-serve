@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"sync"
@@ -41,8 +42,8 @@ func (c *Cache) Get(file *string) *CacheEntry {
 type LogMessage struct {
 	StartTime time.Time
 	Duration  time.Duration
-	URL       *string
-	Method    *string
+	URL       string
+	Method    string
 	Status    int
 	Size      int
 }
@@ -80,7 +81,7 @@ func RequestHandler(
 			}
 
 			logRequest(
-				LogMessage{start, time.Since(start), &req.URL.Path, &req.Method, status, bytes},
+				LogMessage{start, time.Since(start), req.URL.Path, req.Method, status, bytes},
 				logChan,
 				log,
 				req.Header.Get("Logging"),
@@ -111,7 +112,7 @@ func RequestHandler(
 	if err != nil {
 		status = http.StatusNotFound
 		logRequest(
-			LogMessage{start, time.Since(start), &req.URL.Path, &req.Method, status, 0},
+			LogMessage{start, time.Since(start), req.URL.Path, req.Method, status, 0},
 			logChan,
 			log,
 			req.Header.Get("Logging"),
@@ -125,7 +126,7 @@ func RequestHandler(
 		if err != nil {
 			status = http.StatusInternalServerError
 			logRequest(
-				LogMessage{start, time.Since(start), &req.URL.Path, &req.Method, status, 0},
+				LogMessage{start, time.Since(start), req.URL.Path, req.Method, status, 0},
 				logChan,
 				log,
 				req.Header.Get("Logging"),
@@ -145,7 +146,7 @@ func RequestHandler(
 		if err != nil && err != io.EOF {
 			status = http.StatusInternalServerError
 			logRequest(
-				LogMessage{start, time.Since(start), &req.URL.Path, &req.Method, status, 0},
+				LogMessage{start, time.Since(start), req.URL.Path, req.Method, status, 0},
 				logChan,
 				log,
 				req.Header.Get("Logging"),
@@ -159,7 +160,7 @@ func RequestHandler(
 			if bytesWritten > 0 {
 				status = http.StatusPartialContent
 				logRequest(
-					LogMessage{start, time.Since(start), &req.URL.Path, &req.Method, status, bytes},
+					LogMessage{start, time.Since(start), req.URL.Path, req.Method, status, bytes},
 					logChan,
 					log,
 					req.Header.Get("Logging"),
@@ -167,7 +168,7 @@ func RequestHandler(
 			} else {
 				status = http.StatusBadGateway
 				logRequest(
-					LogMessage{start, time.Since(start), &req.URL.Path, &req.Method, status, bytes},
+					LogMessage{start, time.Since(start), req.URL.Path, req.Method, status, bytes},
 					logChan,
 					log,
 					req.Header.Get("Logging"),
@@ -185,7 +186,7 @@ func RequestHandler(
 
 	cachedEntry.IsLoaded = true
 	logRequest(
-		LogMessage{start, time.Since(start), &req.URL.Path, &req.Method, status, size},
+		LogMessage{start, time.Since(start), req.URL.Path, req.Method, status, size},
 		logChan,
 		log,
 		req.Header.Get("Logging"),
@@ -268,36 +269,55 @@ func main() {
 
 	logChan := make(chan LogMessage, 16*1024)
 	logBuf := bufio.NewWriterSize(os.Stderr, 1024*1024)
-	go func() {
-		for msg := range logChan {
-			_, err := fmt.Fprintf(
-				logBuf,
-				"[%s] %s %s: Status: %d | Size: %d | Time: %s\n",
-				msg.StartTime,
-				*msg.Method,
-				*msg.URL,
-				msg.Status,
-				msg.Size,
-				msg.Duration,
-			)
+	writeLogs := func() {
+		ticker := time.NewTicker(2500 * time.Millisecond)
+		defer ticker.Stop()
 
-			if err != nil {
-				fmt.Fprintln(os.Stderr, "Failed to write log at:", msg.StartTime)
+		for {
+			select {
+			case msg, ok := <-logChan:
+				if !ok {
+					return
+				}
+				_, err := fmt.Fprintf(
+					logBuf,
+					"[%s] %s %s: Status: %d | Size: %d | Time: %s\n",
+					msg.StartTime.Local().Format("15:04:05"),
+					msg.Method,
+					msg.URL,
+					msg.Status,
+					msg.Size,
+					msg.Duration,
+				)
+
+				if err != nil {
+					fmt.Fprintln(os.Stderr, "Failed to write log at:", msg.StartTime)
+				}
+			case <-ticker.C:
+				logBuf.Flush()
 			}
 		}
-	}()
+	}
+
+	go writeLogs()
 
 	defer func() {
+		close(logChan)
+		writeLogs()
+
 		err := logBuf.Flush()
 		if err != nil {
 			fmt.Fprintln(
 				os.Stderr,
 				"Error while flushing log buffer to Stderr",
 			)
+
+			os.Exit(1)
 		}
 	}()
 
-	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+	serverMux := http.NewServeMux()
+	serverMux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		RequestHandler(w, req, &dir, log, logChan, &cache, cacheEnabled)
 	})
 
@@ -308,7 +328,15 @@ func main() {
 		port,
 	)
 
-	err := http.ListenAndServe(":"+port, nil)
+	server := &http.Server{
+		Addr:              ":" + port,
+		Handler:           serverMux,
+		ReadHeaderTimeout: 3 * time.Second,
+		ReadTimeout:       5 * time.Second, // a typical request body isn't very large
+		WriteTimeout:      15 * time.Second,
+	}
+
+	err := server.ListenAndServe()
 	if err != nil {
 		fmt.Fprintf(
 			os.Stderr,
@@ -316,5 +344,7 @@ func main() {
 			port,
 			err,
 		)
+
+		os.Exit(1)
 	}
 }
