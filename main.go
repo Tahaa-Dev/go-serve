@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"crypto/subtle"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -17,6 +19,7 @@ var testGarbage = make([]byte, 128*1024)
 func TestHandler(
 	w http.ResponseWriter,
 	req *http.Request,
+	authVar string,
 	logThreshold int,
 	logChan chan<- LogMessage,
 ) {
@@ -42,6 +45,20 @@ func TestHandler(
 			req.Header.Get("Logging"),
 		)
 	}()
+
+	if authHeader := req.Header.Get(
+		"Authorization",
+	); subtle.ConstantTimeCompare(
+		[]byte(authHeader),
+		[]byte("Bearer "+authVar),
+	) == 0 {
+		status = http.StatusUnauthorized
+		outputErr = errors.New("unauthorized GET /test route request")
+
+		w.Header().Set("WWW-Authenticate", "Bearer realm=\"Test\"")
+		http.Error(w, "unauthorized GET /test route request", status)
+		return
+	}
 
 	if mb := req.URL.Query().Get("mb"); mb != "" {
 		n, err := fmt.Sscanf(mb, "%d", &size)
@@ -208,7 +225,8 @@ func RequestHandler(
 		cachedEntry = cachedFile
 		defer cachedEntry.Mu.Unlock()
 
-		// double check if another goroutine built the cache while this goroutine was waiting for the write lock
+		// double check if another goroutine built the cache while
+		// this goroutine was waiting for the write lock
 		if cachedEntry.IsLoaded {
 			checkCache()
 			return
@@ -304,6 +322,16 @@ func logRequest(
 }
 
 func main() {
+	authVar, isSet := os.LookupEnv("GO_SERVE_AUTH")
+
+	if !isSet {
+		fmt.Fprintln(
+			os.Stderr,
+			"Env Var 'GO_SERVE_AUTH' not found.\n • Set Var to a secure auth token for GET /test route authorization",
+		)
+		os.Exit(1)
+	}
+
 	port := ""
 	dir := ""
 	cacheEnabled := false
@@ -401,7 +429,7 @@ func main() {
 		RequestHandler(w, req, ReqHandlerOpts{dir, logThreshold, logChan, &cache, cacheEnabled})
 	})
 	serverMux.HandleFunc("GET /test", func(w http.ResponseWriter, req *http.Request) {
-		TestHandler(w, req, logThreshold, logChan)
+		TestHandler(w, req, authVar, logThreshold, logChan)
 	})
 
 	fmt.Fprintf(
