@@ -55,14 +55,16 @@ func TestHandler(
 	if !ok {
 		status = http.StatusHTTPVersionNotSupported
 		outputErr = http.ErrNotSupported
+		http.Error(w, "HTTP/2 connections not supported for testing. Use HTTP/1.x", status)
 		return
 	}
 
 	conn, rw, err := hijacker.Hijack()
 
 	if err != nil {
-		status = http.StatusExpectationFailed
+		status = http.StatusHTTPVersionNotSupported
 		outputErr = err
+		http.Error(w, outputErr.Error(), status)
 		return
 	}
 
@@ -191,6 +193,7 @@ func RequestHandler(
 			if err != nil {
 				status = http.StatusBadGateway
 				outputErr = err
+				http.Error(w, outputErr.Error(), status)
 			}
 		}
 
@@ -216,8 +219,8 @@ func RequestHandler(
 	openFile, err := os.OpenFile(file, os.O_RDONLY, 0400)
 	if err != nil {
 		status = http.StatusNotFound
-		w.WriteHeader(status)
 		outputErr = err
+		http.Error(w, outputErr.Error(), status)
 		return
 	}
 
@@ -239,6 +242,7 @@ func RequestHandler(
 		if err != nil && err != io.EOF {
 			status = http.StatusInternalServerError
 			outputErr = err
+			http.Error(w, outputErr.Error(), status)
 			return
 		}
 
@@ -247,6 +251,7 @@ func RequestHandler(
 		if err != nil {
 			status = http.StatusBadGateway
 			outputErr = err
+			http.Error(w, outputErr.Error(), status)
 			return
 		}
 
