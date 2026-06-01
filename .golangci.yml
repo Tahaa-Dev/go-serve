@@ -58,4 +58,3 @@ linters:
 formatters:
   enable:
     - golines
-    - gofmt

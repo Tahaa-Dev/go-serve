@@ -12,6 +12,59 @@ import (
 	"time"
 )
 
+var testGarbage = make([]byte, 128*1024)
+
+func TestHandler(
+	w http.ResponseWriter,
+	req *http.Request,
+	logThreshold int,
+	logChan chan<- LogMessage,
+) {
+	size := 50
+	start := time.Now()
+	status := http.StatusOK
+	var err error
+
+	if mb := req.URL.Query().Get("mb"); mb != "" {
+		n, err := fmt.Sscanf(mb, "%d", &size)
+
+		if err != nil || n == 0 {
+			fmt.Fprintln(os.Stderr, "Error while scanning query string for size")
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", size*1024*1024))
+
+	bytes := 0
+	for i := 0; i < size*8; i++ {
+		n, newErr := w.Write(testGarbage)
+
+		if newErr != nil {
+			status = http.StatusBadGateway
+			err = newErr
+			break
+		}
+
+		bytes += n
+	}
+
+	logRequest(
+		LogMessage{
+			start,
+			time.Since(start),
+			req.URL.Path,
+			req.Method,
+			status,
+			bytes,
+			err,
+		},
+		logChan,
+		logThreshold,
+		req.Header.Get("Logging"),
+	)
+}
+
 type CacheEntry struct {
 	Mu       sync.RWMutex
 	IsLoaded bool
@@ -45,6 +98,7 @@ type LogMessage struct {
 	Method    string
 	Status    int
 	Size      int
+	Error     error
 }
 
 type ReqHandlerOpts struct {
@@ -62,7 +116,18 @@ func RequestHandler(
 ) {
 	start := time.Now()
 	status := http.StatusOK
+	size := 0
 	var cachedEntry *CacheEntry
+	var outputErr error
+
+	defer func() {
+		logRequest(
+			LogMessage{start, time.Since(start), req.URL.Path, req.Method, status, size, outputErr},
+			opts.LogChan,
+			opts.LogThreshold,
+			req.Header.Get("Logging"),
+		)
+	}()
 
 	safePath := filepath.Clean(req.URL.Path)
 	file := filepath.Join(opts.Dir, safePath)
@@ -70,34 +135,23 @@ func RequestHandler(
 	if opts.CacheEnabled {
 		cachedFile := opts.Cache.Get(&file)
 
-		cachedFile.Mu.RLock()
-
 		checkCache := func() {
 			bytes, err := w.Write(cachedFile.data)
+			size = bytes
 
 			if err != nil {
-				if bytes > 0 {
-					status = http.StatusPartialContent
-				} else {
-					status = http.StatusBadGateway
-				}
+				status = http.StatusBadGateway
+				outputErr = err
 			}
-
-			logRequest(
-				LogMessage{start, time.Since(start), req.URL.Path, req.Method, status, bytes},
-				opts.LogChan,
-				opts.LogThreshold,
-				req.Header.Get("Logging"),
-			)
 		}
 
 		if cachedFile.IsLoaded {
+			cachedFile.Mu.RLock()
 			checkCache()
 			cachedFile.Mu.RUnlock()
 			return
 		}
 
-		cachedFile.Mu.RUnlock()
 		cachedFile.Mu.Lock()
 		cachedEntry = cachedFile
 		defer cachedEntry.Mu.Unlock()
@@ -114,31 +168,19 @@ func RequestHandler(
 	openFile, err := os.OpenFile(file, os.O_RDONLY, 0400)
 	if err != nil {
 		status = http.StatusNotFound
-		logRequest(
-			LogMessage{start, time.Since(start), req.URL.Path, req.Method, status, 0},
-			opts.LogChan,
-			opts.LogThreshold,
-			req.Header.Get("Logging"),
-		)
-		w.WriteHeader(http.StatusNotFound)
+		w.WriteHeader(status)
+		outputErr = err
 		return
 	}
 
 	defer func() {
 		err := openFile.Close()
 		if err != nil {
-			status = http.StatusInternalServerError
-			logRequest(
-				LogMessage{start, time.Since(start), req.URL.Path, req.Method, status, 0},
-				opts.LogChan,
-				opts.LogThreshold,
-				req.Header.Get("Logging"),
-			)
+			fmt.Fprintln(os.Stderr, "Failed to close file:", file)
 		}
 	}()
 
 	buf := make([]byte, 128*1024)
-	size := 0
 	for {
 		bytes, err := openFile.Read(buf)
 
@@ -148,35 +190,15 @@ func RequestHandler(
 
 		if err != nil && err != io.EOF {
 			status = http.StatusInternalServerError
-			logRequest(
-				LogMessage{start, time.Since(start), req.URL.Path, req.Method, status, 0},
-				opts.LogChan,
-				opts.LogThreshold,
-				req.Header.Get("Logging"),
-			)
-			break
+			outputErr = err
+			return
 		}
 
 		bytesWritten, err := w.Write(buf[:bytes])
 
 		if err != nil {
-			if bytesWritten > 0 {
-				status = http.StatusPartialContent
-				logRequest(
-					LogMessage{start, time.Since(start), req.URL.Path, req.Method, status, bytes},
-					opts.LogChan,
-					opts.LogThreshold,
-					req.Header.Get("Logging"),
-				)
-			} else {
-				status = http.StatusBadGateway
-				logRequest(
-					LogMessage{start, time.Since(start), req.URL.Path, req.Method, status, bytes},
-					opts.LogChan,
-					opts.LogThreshold,
-					req.Header.Get("Logging"),
-				)
-			}
+			status = http.StatusBadGateway
+			outputErr = err
 			return
 		}
 
@@ -188,12 +210,6 @@ func RequestHandler(
 	}
 
 	cachedEntry.IsLoaded = true
-	logRequest(
-		LogMessage{start, time.Since(start), req.URL.Path, req.Method, status, size},
-		opts.LogChan,
-		opts.LogThreshold,
-		req.Header.Get("Logging"),
-	)
 }
 
 func logRequest(
@@ -272,6 +288,7 @@ func main() {
 
 	logChan := make(chan LogMessage, 16*1024)
 	logBuf := bufio.NewWriterSize(os.Stderr, 1024*1024)
+
 	writeLogs := func() {
 		ticker := time.NewTicker(2500 * time.Millisecond)
 		defer ticker.Stop()
@@ -282,15 +299,22 @@ func main() {
 				if !ok {
 					return
 				}
+
+				errStr := "\n"
+				if msg.Error != nil {
+					errStr = fmt.Sprintf(" | Error: %s\n", msg.Error)
+				}
+
 				_, err := fmt.Fprintf(
 					logBuf,
-					"[%s] %s %s: Status: %d | Size: %d | Time: %s\n",
+					"[%s] %s %s: Status: %d | Size: %d | Time: %s%s",
 					msg.StartTime.Local().Format("15:04:05"),
 					msg.Method,
 					msg.URL,
 					msg.Status,
 					msg.Size,
 					msg.Duration,
+					errStr,
 				)
 
 				if err != nil {
@@ -327,8 +351,11 @@ func main() {
 	}()
 
 	serverMux := http.NewServeMux()
-	serverMux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+	serverMux.HandleFunc("GET /", func(w http.ResponseWriter, req *http.Request) {
 		RequestHandler(w, req, ReqHandlerOpts{dir, logThreshold, logChan, &cache, cacheEnabled})
+	})
+	serverMux.HandleFunc("GET /test", func(w http.ResponseWriter, req *http.Request) {
+		TestHandler(w, req, logThreshold, logChan)
 	})
 
 	fmt.Fprintf(
