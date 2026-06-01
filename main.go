@@ -231,6 +231,17 @@ func RequestHandler(
 		}
 	}()
 
+	if fileInfo, err := openFile.Stat(); err == nil {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
+	} else {
+		fmt.Fprintf(
+			os.Stderr,
+			"Error while setting Content-Length header for request to path: %s\n • Error Message: %s",
+			file,
+			err,
+		)
+	}
+
 	buf := make([]byte, 128*1024)
 	for {
 		bytes, err := openFile.Read(buf)
@@ -295,31 +306,16 @@ func logRequest(
 func main() {
 	port := ""
 	dir := ""
-	logLevel := ""
 	cacheEnabled := false
-	flag.StringVar(
-		&port,
-		"p",
-		"8000",
-		"Serve on custom port (go-serve -p 3000)\n •",
-	)
-	flag.StringVar(
-		&dir,
-		"d",
-		".",
-		"Directory to serve (go-serve -d ./website)\n •",
-	)
+	logLevel := ""
+	flag.StringVar(&port, "p", "8000", "Serve on custom port (go-serve -p 3000)\n •")
+	flag.StringVar(&dir, "d", ".", "Directory to serve (go-serve -d ./website)\n •")
+	flag.BoolVar(&cacheEnabled, "c", false, "Enable caching files in memory (go-serve -c)\n •")
 	flag.StringVar(
 		&logLevel,
 		"l",
 		"Warn",
 		"Set global log level threshold.\nOverrides Logging header in requests if Logging header has a higher log level threshold (go-serve -l Info)\n • Options: Error/Info/Warn",
-	)
-	flag.BoolVar(
-		&cacheEnabled,
-		"c",
-		false,
-		"Enable caching files in memory (go-serve -c)\n •",
 	)
 	flag.Parse()
 
@@ -394,10 +390,7 @@ func main() {
 
 		err := logBuf.Flush()
 		if err != nil {
-			fmt.Fprintln(
-				os.Stderr,
-				"Error while flushing log buffer to Stderr",
-			)
+			fmt.Fprintln(os.Stderr, "Error while flushing log buffer to Stderr")
 
 			os.Exit(1)
 		}
