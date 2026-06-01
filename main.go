@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"io"
@@ -12,29 +13,38 @@ import (
 )
 
 type CacheEntry struct {
-	mu       sync.RWMutex
-	isLoaded bool
+	Mu       sync.RWMutex
+	IsLoaded bool
 	data     []byte
 }
 
 type Cache struct {
-	mu    sync.Mutex
-	files map[string]*CacheEntry
+	Mu    sync.Mutex
+	Files map[string]*CacheEntry
 }
 
 func (c *Cache) Get(file *string) *CacheEntry {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.Mu.Lock()
+	defer c.Mu.Unlock()
 
-	entry := c.files[*file]
+	entry := c.Files[*file]
 
 	if entry == nil {
-		c.files[*file] = &CacheEntry{sync.RWMutex{}, false, nil}
+		c.Files[*file] = &CacheEntry{sync.RWMutex{}, false, nil}
 
-		return c.files[*file]
+		return c.Files[*file]
 	}
 
 	return entry
+}
+
+type LogMessage struct {
+	StartTime time.Time
+	Duration  time.Duration
+	URL       *string
+	Method    *string
+	Status    int
+	Size      int
 }
 
 func RequestHandler(
@@ -42,6 +52,7 @@ func RequestHandler(
 	req *http.Request,
 	dir *string,
 	log int,
+	logChan chan<- LogMessage,
 	cache *Cache,
 	cacheEnabled bool,
 ) {
@@ -55,11 +66,10 @@ func RequestHandler(
 	if cacheEnabled {
 		cachedFile := cache.Get(&file)
 
-		cachedFile.mu.RLock()
+		cachedFile.Mu.RLock()
 
-		if cachedFile.isLoaded {
+		checkCache := func() {
 			bytes, err := w.Write(cachedFile.data)
-			cachedFile.mu.RUnlock()
 
 			if err != nil {
 				if bytes > 0 {
@@ -69,36 +79,43 @@ func RequestHandler(
 				}
 			}
 
-			logRequest(req, &start, status, bytes, log)
+			logRequest(
+				LogMessage{start, time.Since(start), &req.URL.Path, &req.Method, status, bytes},
+				logChan,
+				log,
+				req.Header.Get("Logging"),
+			)
+		}
+
+		if cachedFile.IsLoaded {
+			checkCache()
+			cachedFile.Mu.RUnlock()
 			return
 		}
 
-		cachedFile.mu.RUnlock()
-		cachedFile.mu.Lock()
+		cachedFile.Mu.RUnlock()
+		cachedFile.Mu.Lock()
 		cachedEntry = cachedFile
-		defer cachedEntry.mu.Unlock()
+		defer cachedEntry.Mu.Unlock()
 
 		// double check if another goroutine built the cache
 		// while this goroutine was waiting for the write lock
-		if cachedEntry.isLoaded {
-			bytes, err := w.Write(cachedFile.data)
-
-			if err != nil {
-				if bytes > 0 {
-					status = http.StatusPartialContent
-				} else {
-					status = http.StatusBadGateway
-				}
-			}
-
-			logRequest(req, &start, status, bytes, log)
+		if cachedEntry.IsLoaded {
+			checkCache()
 			return
 		}
 	}
 
-	openFile, err := os.OpenFile(file, os.O_RDONLY, os.ModePerm)
+	// #nosec G304 -- path is sanitized before cache check
+	openFile, err := os.OpenFile(file, os.O_RDONLY, 0400)
 	if err != nil {
-		logRequest(req, &start, http.StatusNotFound, 0, log)
+		status = http.StatusNotFound
+		logRequest(
+			LogMessage{start, time.Since(start), &req.URL.Path, &req.Method, status, 0},
+			logChan,
+			log,
+			req.Header.Get("Logging"),
+		)
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -106,7 +123,13 @@ func RequestHandler(
 	defer func() {
 		err := openFile.Close()
 		if err != nil {
-			logRequest(req, &start, http.StatusInternalServerError, 0, log)
+			status = http.StatusInternalServerError
+			logRequest(
+				LogMessage{start, time.Since(start), &req.URL.Path, &req.Method, status, 0},
+				logChan,
+				log,
+				req.Header.Get("Logging"),
+			)
 		}
 	}()
 
@@ -120,7 +143,13 @@ func RequestHandler(
 		}
 
 		if err != nil && err != io.EOF {
-			logRequest(req, &start, http.StatusInternalServerError, 0, log)
+			status = http.StatusInternalServerError
+			logRequest(
+				LogMessage{start, time.Since(start), &req.URL.Path, &req.Method, status, 0},
+				logChan,
+				log,
+				req.Header.Get("Logging"),
+			)
 			break
 		}
 
@@ -129,10 +158,20 @@ func RequestHandler(
 		if err != nil {
 			if bytesWritten > 0 {
 				status = http.StatusPartialContent
-				logRequest(req, &start, status, bytes, log)
+				logRequest(
+					LogMessage{start, time.Since(start), &req.URL.Path, &req.Method, status, bytes},
+					logChan,
+					log,
+					req.Header.Get("Logging"),
+				)
 			} else {
 				status = http.StatusBadGateway
-				logRequest(req, &start, status, bytes, log)
+				logRequest(
+					LogMessage{start, time.Since(start), &req.URL.Path, &req.Method, status, bytes},
+					logChan,
+					log,
+					req.Header.Get("Logging"),
+				)
 			}
 			return
 		}
@@ -144,35 +183,39 @@ func RequestHandler(
 		size += bytesWritten
 	}
 
-	cachedEntry.isLoaded = true
-	logRequest(req, &start, status, size, log)
+	cachedEntry.IsLoaded = true
+	logRequest(
+		LogMessage{start, time.Since(start), &req.URL.Path, &req.Method, status, size},
+		logChan,
+		log,
+		req.Header.Get("Logging"),
+	)
 }
 
-func logRequest(req *http.Request, start *time.Time, status int, size int, log int) {
-	switch req.Header.Get("Logging") {
+func logRequest(
+	msg LogMessage,
+	ch chan<- LogMessage,
+	threshold int,
+	logHeader string,
+) {
+	switch logHeader {
 	case "Error":
-		if log > 400 {
-			log = 400
+		if threshold > 400 {
+			threshold = 400
 		}
 	case "Warn":
-		if log > 300 {
-			log = 300
+		if threshold > 300 {
+			threshold = 300
 		}
 	case "Info":
-		if log > 200 {
-			log = 200
+		if threshold > 200 {
+			threshold = 200
 		}
+	default:
 	}
 
-	if status >= log {
-		fmt.Fprintf(os.Stderr, "[%s] %s %s: Status: %d | Size: %d | Time: %s\n",
-			start.Format("15:04:05"),
-			req.Method,
-			req.URL,
-			status,
-			size,
-			time.Since(*start),
-		)
+	if msg.Status >= threshold {
+		ch <- msg
 	}
 }
 
@@ -181,10 +224,30 @@ func main() {
 	dir := ""
 	logLevel := ""
 	cacheEnabled := false
-	flag.StringVar(&port, "p", "8000", "Serve on custom port (go-serve -p 3000)\n •")
-	flag.StringVar(&dir, "d", ".", "Directory to serve (go-serve -d ./website)\n •")
-	flag.StringVar(&logLevel, "l", "Warn", "Set global log level threshold.\nOverrides Logging header in requests if Logging header has a higher log level threshold (go-serve -l Info)\n • Options: Error/Info/Warn")
-	flag.BoolVar(&cacheEnabled, "c", false, "Enable caching files in memory (go-serve -c)\n •")
+	flag.StringVar(
+		&port,
+		"p",
+		"8000",
+		"Serve on custom port (go-serve -p 3000)\n •",
+	)
+	flag.StringVar(
+		&dir,
+		"d",
+		".",
+		"Directory to serve (go-serve -d ./website)\n •",
+	)
+	flag.StringVar(
+		&logLevel,
+		"l",
+		"Warn",
+		"Set global log level threshold.\nOverrides Logging header in requests if Logging header has a higher log level threshold (go-serve -l Info)\n • Options: Error/Info/Warn",
+	)
+	flag.BoolVar(
+		&cacheEnabled,
+		"c",
+		false,
+		"Enable caching files in memory (go-serve -c)\n •",
+	)
 	flag.Parse()
 
 	log := 300
@@ -195,6 +258,7 @@ func main() {
 		log = 300
 	case "Info":
 		log = 200
+	default:
 	}
 
 	var cache Cache
@@ -202,13 +266,55 @@ func main() {
 		cache = Cache{sync.Mutex{}, make(map[string]*CacheEntry)}
 	}
 
+	logChan := make(chan LogMessage, 16*1024)
+	logBuf := bufio.NewWriterSize(os.Stderr, 1024*1024)
+	go func() {
+		for msg := range logChan {
+			_, err := fmt.Fprintf(
+				logBuf,
+				"[%s] %s %s: Status: %d | Size: %d | Time: %s\n",
+				msg.StartTime,
+				*msg.Method,
+				*msg.URL,
+				msg.Status,
+				msg.Size,
+				msg.Duration,
+			)
+
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Failed to write log at:", msg.StartTime)
+			}
+		}
+	}()
+
+	defer func() {
+		err := logBuf.Flush()
+		if err != nil {
+			fmt.Fprintln(
+				os.Stderr,
+				"Error while flushing log buffer to Stderr",
+			)
+		}
+	}()
+
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
-		RequestHandler(w, req, &dir, log, &cache, cacheEnabled)
+		RequestHandler(w, req, &dir, log, logChan, &cache, cacheEnabled)
 	})
 
-	fmt.Fprintf(os.Stderr, "Serving directory %s on http://localhost:%s\n", dir, port)
+	fmt.Fprintf(
+		os.Stderr,
+		"Serving directory %s on http://localhost:%s\n",
+		dir,
+		port,
+	)
+
 	err := http.ListenAndServe(":"+port, nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error while starting server listener on port %s\n • Error Message: %s\n", port, err)
+		fmt.Fprintf(
+			os.Stderr,
+			"Error while starting server on port %s\n • Error Message: %s\n",
+			port,
+			err,
+		)
 	}
 }
