@@ -2,374 +2,17 @@ package main
 
 import (
 	"bufio"
-	"crypto/subtle"
-	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
 	// #nosec G108 -- ppprof server is wrapped in auth middleware and is on local network on internal 8081 port
+	"go-serve/handlers"
+	"go-serve/utils"
 	_ "net/http/pprof"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 )
-
-var testGarbage = make([]byte, 128*1024)
-
-var authVar string
-
-func init() {
-	isSet := false
-
-	if authVar, isSet = os.LookupEnv("GO_SERVE_AUTH"); !isSet {
-		fmt.Fprintln(
-			os.Stderr,
-			"Env Var 'GO_SERVE_AUTH' not found.\n • Set Var to a secure auth token for GET /test route authorization",
-		)
-		os.Exit(1)
-	}
-}
-
-func Auth(
-	status *int,
-	err *error,
-	authHeader string,
-	reqName string,
-	w http.ResponseWriter,
-) bool {
-	if subtle.ConstantTimeCompare(
-		[]byte(authHeader),
-		[]byte("Bearer "+authVar),
-	) == 0 {
-		errStr := "unauthorized " + reqName + " request"
-		*status = http.StatusUnauthorized
-		*err = errors.New(errStr)
-
-		w.Header().Set("WWW-Authenticate", "Bearer realm=\"Test\"")
-		http.Error(w, errStr, *status)
-
-		return false
-	}
-
-	return true
-}
-
-func TestHandler(
-	w http.ResponseWriter,
-	req *http.Request,
-	logThreshold int,
-	logChan chan<- LogMessage,
-) {
-	size := 50
-	start := time.Now()
-	status := http.StatusOK
-	bytes := 0
-	var outputErr error
-
-	defer func() {
-		logRequest(
-			LogMessage{
-				start,
-				time.Since(start),
-				req.URL.Path,
-				req.Method,
-				status,
-				bytes,
-				outputErr,
-			},
-			logChan,
-			logThreshold,
-			req.Header.Get("Logging"),
-		)
-	}()
-
-	if !Auth(&status, &outputErr, req.Header.Get("Authorization"), "GET /test route", w) {
-		return
-	}
-
-	if mb := req.URL.Query().Get("mb"); mb != "" {
-		n, err := fmt.Sscanf(mb, "%d", &size)
-
-		if err != nil || n == 0 {
-			fmt.Fprintln(os.Stderr, "Error while scanning query string for size")
-		}
-	}
-
-	rc := http.NewResponseController(w)
-	err := rc.SetWriteDeadline(time.Time{})
-
-	if err != nil {
-		status = http.StatusHTTPVersionNotSupported
-		outputErr = err
-		http.Error(w, outputErr.Error(), status)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", size*1024*1024))
-
-	for i := 0; i < size*8; i++ {
-		n, err := w.Write(testGarbage)
-
-		if err != nil {
-			status = http.StatusBadGateway
-			outputErr = err
-			http.Error(w, outputErr.Error(), status)
-			break
-		}
-
-		bytes += n
-	}
-}
-
-type CacheEntry struct {
-	Mu       sync.RWMutex
-	IsLoaded bool
-	data     []byte
-}
-
-type Cache struct {
-	Mu    sync.Mutex
-	Files map[string]*CacheEntry
-}
-
-func (c *Cache) Get(file *string) *CacheEntry {
-	c.Mu.Lock()
-	defer c.Mu.Unlock()
-
-	entry := c.Files[*file]
-
-	if entry == nil {
-		c.Files[*file] = &CacheEntry{sync.RWMutex{}, false, nil}
-
-		return c.Files[*file]
-	}
-
-	return entry
-}
-
-type LogMessage struct {
-	StartTime time.Time
-	Duration  time.Duration
-	URL       string
-	Method    string
-	Status    int
-	Size      int
-	Error     error
-}
-
-type ReqHandlerOpts struct {
-	Dir          string
-	LogThreshold int
-	LogChan      chan<- LogMessage
-	Cache        *Cache
-	CacheEnabled bool
-}
-
-var bufPool = sync.Pool{
-	New: func() any {
-		buf := make([]byte, 128*1024)
-		return &buf
-	},
-}
-
-func RequestHandler(
-	w http.ResponseWriter,
-	req *http.Request,
-	opts ReqHandlerOpts,
-) {
-	start := time.Now()
-	status := http.StatusOK
-	size := 0
-	var cachedEntry *CacheEntry
-	var outputErr error
-
-	defer func() {
-		logRequest(
-			LogMessage{
-				start,
-				time.Since(start),
-				req.URL.Path,
-				req.Method,
-				status,
-				size,
-				outputErr,
-			},
-			opts.LogChan,
-			opts.LogThreshold,
-			req.Header.Get("Logging"),
-		)
-	}()
-
-	safePath := filepath.Clean(req.URL.Path)
-	file := filepath.Join(opts.Dir, safePath)
-
-	if opts.CacheEnabled {
-		cachedFile := opts.Cache.Get(&file)
-
-		checkCache := func() {
-			bytes, err := w.Write(cachedFile.data)
-			size = bytes
-
-			if err != nil {
-				status = http.StatusBadGateway
-				outputErr = err
-				http.Error(w, outputErr.Error(), status)
-			}
-		}
-
-		if cachedFile.IsLoaded {
-			cachedFile.Mu.RLock()
-			checkCache()
-			cachedFile.Mu.RUnlock()
-			return
-		}
-
-		cachedFile.Mu.Lock()
-		cachedEntry = cachedFile
-		defer cachedEntry.Mu.Unlock()
-
-		// double check if another goroutine built the cache while
-		// this goroutine was waiting for the write lock
-		if cachedEntry.IsLoaded {
-			checkCache()
-			return
-		}
-	}
-
-	// #nosec G304 -- path is sanitized before cache check
-	openFile, err := os.OpenFile(file, os.O_RDONLY, 0400)
-	if err != nil {
-		status = http.StatusNotFound
-		outputErr = err
-		http.Error(w, outputErr.Error(), status)
-		return
-	}
-
-	defer func() {
-		err := openFile.Close()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Failed to close file:", file)
-		}
-	}()
-
-	if fileInfo, err := openFile.Stat(); err == nil {
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
-	} else {
-		fmt.Fprintf(
-			os.Stderr,
-			"Error while setting Content-Length header for request to path: %s\n • Error Message: %s",
-			file,
-			err,
-		)
-	}
-
-	buf := bufPool.Get().(*[]byte)
-	defer bufPool.Put(buf)
-
-	for {
-		bytes, err := openFile.Read((*buf))
-
-		if bytes == 0 {
-			break
-		}
-
-		if err != nil && err != io.EOF {
-			status = http.StatusInternalServerError
-			outputErr = err
-			http.Error(w, outputErr.Error(), status)
-			return
-		}
-
-		bytesWritten, err := w.Write((*buf)[:bytes])
-
-		if err != nil {
-			status = http.StatusBadGateway
-			outputErr = err
-			http.Error(w, outputErr.Error(), status)
-			return
-		}
-
-		if opts.CacheEnabled {
-			cachedEntry.data = append(cachedEntry.data, (*buf)[:bytes]...)
-		}
-
-		size += bytesWritten
-	}
-
-	cachedEntry.IsLoaded = true
-}
-
-func logRequest(
-	msg LogMessage,
-	ch chan<- LogMessage,
-	threshold int,
-	logHeader string,
-) {
-	switch logHeader {
-	case "Error":
-		if threshold > 400 {
-			threshold = 400
-		}
-	case "Warn":
-		if threshold > 300 {
-			threshold = 300
-		}
-	case "Info":
-		if threshold > 200 {
-			threshold = 200
-		}
-	default:
-	}
-
-	if msg.Status >= threshold {
-		ch <- msg
-	}
-}
-
-func PprofMiddleware(
-	next http.Handler,
-	logChan chan<- LogMessage,
-	logThreshold int,
-) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		start := time.Now()
-		status := http.StatusOK
-		bytes := 0
-		var outputErr error
-
-		defer func() {
-			logRequest(
-				LogMessage{
-					start,
-					time.Since(start),
-					req.URL.Path,
-					req.Method,
-					status,
-					bytes,
-					outputErr,
-				},
-				logChan,
-				logThreshold,
-				req.Header.Get("Logging"),
-			)
-		}()
-
-		if !Auth(
-			&status,
-			&outputErr,
-			req.Header.Get("Authorization"),
-			"pprof diagnostics route",
-			w,
-		) {
-			return
-		}
-
-		next.ServeHTTP(w, req)
-	})
-}
 
 func main() {
 	port := ""
@@ -398,12 +41,12 @@ func main() {
 	default:
 	}
 
-	var cache Cache
+	var cache utils.Cache
 	if cacheEnabled {
-		cache = Cache{sync.Mutex{}, make(map[string]*CacheEntry)}
+		cache = utils.Cache{Mu: sync.Mutex{}, Files: make(map[string]*utils.CacheEntry)}
 	}
 
-	logChan := make(chan LogMessage, 16*1024)
+	logChan := make(chan utils.LogMessage, 16*1024)
 	logBuf := bufio.NewWriterSize(os.Stderr, 1024*1024)
 
 	writeLogs := func() {
@@ -466,10 +109,20 @@ func main() {
 
 	serverMux := http.NewServeMux()
 	serverMux.HandleFunc("GET /", func(w http.ResponseWriter, req *http.Request) {
-		RequestHandler(w, req, ReqHandlerOpts{dir, logThreshold, logChan, &cache, cacheEnabled})
+		handlers.RequestHandler(
+			w,
+			req,
+			utils.ReqHandlerOpts{
+				Dir:          dir,
+				LogThreshold: logThreshold,
+				LogChan:      logChan,
+				Cache:        &cache,
+				CacheEnabled: cacheEnabled,
+			},
+		)
 	})
 	serverMux.HandleFunc("GET /test", func(w http.ResponseWriter, req *http.Request) {
-		TestHandler(w, req, logThreshold, logChan)
+		handlers.TestHandler(w, req, logThreshold, logChan)
 	})
 
 	go func() {
@@ -477,7 +130,7 @@ func main() {
 
 		server := &http.Server{
 			Addr:              "localhost:8081",
-			Handler:           PprofMiddleware(http.DefaultServeMux, logChan, logThreshold),
+			Handler:           utils.LogMiddleware(http.DefaultServeMux, logChan, logThreshold),
 			ReadHeaderTimeout: 3 * time.Second,
 		}
 
