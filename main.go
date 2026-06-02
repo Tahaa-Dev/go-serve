@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	// #nosec G108 -- ppprof server is wrapped in auth middleware and is on local network on internal 8081 port
+	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"sync"
@@ -16,10 +18,41 @@ import (
 
 var testGarbage = make([]byte, 128*1024)
 
+var authVar string
+
+func init() {
+	isSet := false
+
+	if authVar, isSet = os.LookupEnv("GO_SERVE_AUTH"); !isSet {
+		fmt.Fprintln(
+			os.Stderr,
+			"Env Var 'GO_SERVE_AUTH' not found.\n • Set Var to a secure auth token for GET /test route authorization",
+		)
+		os.Exit(1)
+	}
+}
+
+func Auth(status *int, err *error, authHeader string, reqName string, w http.ResponseWriter) bool {
+	if subtle.ConstantTimeCompare(
+		[]byte(authHeader),
+		[]byte("Bearer "+authVar),
+	) == 0 {
+		errStr := "unauthorized " + reqName + " request"
+		*status = http.StatusUnauthorized
+		*err = errors.New(errStr)
+
+		w.Header().Set("WWW-Authenticate", "Bearer realm=\"Test\"")
+		http.Error(w, errStr, *status)
+
+		return false
+	}
+
+	return true
+}
+
 func TestHandler(
 	w http.ResponseWriter,
 	req *http.Request,
-	authVar string,
 	logThreshold int,
 	logChan chan<- LogMessage,
 ) {
@@ -46,17 +79,7 @@ func TestHandler(
 		)
 	}()
 
-	if authHeader := req.Header.Get(
-		"Authorization",
-	); subtle.ConstantTimeCompare(
-		[]byte(authHeader),
-		[]byte("Bearer "+authVar),
-	) == 0 {
-		status = http.StatusUnauthorized
-		outputErr = errors.New("unauthorized GET /test route request")
-
-		w.Header().Set("WWW-Authenticate", "Bearer realm=\"Test\"")
-		http.Error(w, "unauthorized GET /test route request", status)
+	if !Auth(&status, &outputErr, req.Header.Get("Authorization"), "GET /test route", w) {
 		return
 	}
 
@@ -321,17 +344,49 @@ func logRequest(
 	}
 }
 
+func PprofMiddleware(
+	next http.Handler,
+	logChan chan<- LogMessage,
+	logThreshold int,
+) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		start := time.Now()
+		status := http.StatusOK
+		bytes := 0
+		var outputErr error
+
+		defer func() {
+			logRequest(
+				LogMessage{
+					start,
+					time.Since(start),
+					req.URL.Path,
+					req.Method,
+					status,
+					bytes,
+					outputErr,
+				},
+				logChan,
+				logThreshold,
+				req.Header.Get("Logging"),
+			)
+		}()
+
+		if !Auth(
+			&status,
+			&outputErr,
+			req.Header.Get("Authorization"),
+			"pprof diagnostics route",
+			w,
+		) {
+			return
+		}
+
+		next.ServeHTTP(w, req)
+	})
+}
+
 func main() {
-	authVar, isSet := os.LookupEnv("GO_SERVE_AUTH")
-
-	if !isSet {
-		fmt.Fprintln(
-			os.Stderr,
-			"Env Var 'GO_SERVE_AUTH' not found.\n • Set Var to a secure auth token for GET /test route authorization",
-		)
-		os.Exit(1)
-	}
-
 	port := ""
 	dir := ""
 	cacheEnabled := false
@@ -429,15 +484,29 @@ func main() {
 		RequestHandler(w, req, ReqHandlerOpts{dir, logThreshold, logChan, &cache, cacheEnabled})
 	})
 	serverMux.HandleFunc("GET /test", func(w http.ResponseWriter, req *http.Request) {
-		TestHandler(w, req, authVar, logThreshold, logChan)
+		TestHandler(w, req, logThreshold, logChan)
 	})
 
-	fmt.Fprintf(
-		os.Stderr,
-		"Serving directory %s on http://localhost:%s\n",
-		dir,
-		port,
-	)
+	go func() {
+		fmt.Fprintln(os.Stderr, "Started diagnostics server on http://localhost:8081/debug/pprof/")
+
+		server := &http.Server{
+			Addr:              "localhost:8081",
+			Handler:           PprofMiddleware(http.DefaultServeMux, logChan, logThreshold),
+			ReadHeaderTimeout: 3 * time.Second,
+		}
+
+		err := server.ListenAndServe()
+		if err != nil {
+			fmt.Fprintf(
+				os.Stderr,
+				"Error while starting diagnostics server on port 8081\n • Error Message: %s\n",
+				err,
+			)
+
+			return
+		}
+	}()
 
 	server := &http.Server{
 		Addr:              ":" + port,
@@ -446,6 +515,13 @@ func main() {
 		ReadTimeout:       5 * time.Second, // a typical request body isn't very large
 		WriteTimeout:      15 * time.Second,
 	}
+
+	fmt.Fprintf(
+		os.Stderr,
+		"Serving directory %s on http://localhost:%s\n",
+		dir,
+		port,
+	)
 
 	err := server.ListenAndServe()
 	if err != nil {
