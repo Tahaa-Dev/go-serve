@@ -32,7 +32,13 @@ func init() {
 	}
 }
 
-func Auth(status *int, err *error, authHeader string, reqName string, w http.ResponseWriter) bool {
+func Auth(
+	status *int,
+	err *error,
+	authHeader string,
+	reqName string,
+	w http.ResponseWriter,
+) bool {
 	if subtle.ConstantTimeCompare(
 		[]byte(authHeader),
 		[]byte("Bearer "+authVar),
@@ -91,15 +97,8 @@ func TestHandler(
 		}
 	}
 
-	hijacker, ok := w.(http.Hijacker)
-	if !ok {
-		status = http.StatusHTTPVersionNotSupported
-		outputErr = http.ErrNotSupported
-		http.Error(w, "HTTP/2 connections not supported for testing. Use HTTP/1.x", status)
-		return
-	}
-
-	conn, rw, err := hijacker.Hijack()
+	rc := http.NewResponseController(w)
+	err := rc.SetWriteDeadline(time.Time{})
 
 	if err != nil {
 		status = http.StatusHTTPVersionNotSupported
@@ -108,39 +107,16 @@ func TestHandler(
 		return
 	}
 
-	defer func() {
-		err := conn.Close()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Failed to close connection to hijacked test request")
-		}
-	}()
-
-	_ = conn.SetWriteDeadline(time.Time{})
-
-	_, err = fmt.Fprintf(
-		rw,
-		"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %d\r\n\r\n",
-		size*1024*1024,
-	)
-	if err != nil {
-		status = http.StatusBadGateway
-		outputErr = err
-		return
-	}
-
-	err = rw.Flush()
-	if err != nil {
-		status = http.StatusBadGateway
-		outputErr = err
-		return
-	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", size*1024*1024))
 
 	for i := 0; i < size*8; i++ {
-		n, err := rw.Write(testGarbage)
+		n, err := w.Write(testGarbage)
 
 		if err != nil {
 			status = http.StatusBadGateway
 			outputErr = err
+			http.Error(w, outputErr.Error(), status)
 			break
 		}
 
