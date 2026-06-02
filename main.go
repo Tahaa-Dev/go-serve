@@ -192,6 +192,13 @@ type ReqHandlerOpts struct {
 	CacheEnabled bool
 }
 
+var bufPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, 128*1024)
+		return &buf
+	},
+}
+
 func RequestHandler(
 	w http.ResponseWriter,
 	req *http.Request,
@@ -283,9 +290,10 @@ func RequestHandler(
 		)
 	}
 
-	buf := make([]byte, 128*1024)
+	buf := bufPool.Get().(*[]byte)
+	defer bufPool.Put(*buf)
 	for {
-		bytes, err := openFile.Read(buf)
+		bytes, err := openFile.Read((*buf))
 
 		if bytes == 0 {
 			break
@@ -298,7 +306,7 @@ func RequestHandler(
 			return
 		}
 
-		bytesWritten, err := w.Write(buf[:bytes])
+		bytesWritten, err := w.Write((*buf)[:bytes])
 
 		if err != nil {
 			status = http.StatusBadGateway
@@ -308,7 +316,7 @@ func RequestHandler(
 		}
 
 		if opts.CacheEnabled {
-			cachedEntry.data = append(cachedEntry.data, buf[:bytes]...)
+			cachedEntry.data = append(cachedEntry.data, (*buf)[:bytes]...)
 		}
 
 		size += bytesWritten
