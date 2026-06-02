@@ -267,7 +267,8 @@ func RequestHandler(
 	}
 
 	buf := bufPool.Get().(*[]byte)
-	defer bufPool.Put(*buf)
+	defer bufPool.Put(buf)
+
 	for {
 		bytes, err := openFile.Read((*buf))
 
