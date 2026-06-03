@@ -14,6 +14,81 @@ import (
 	"time"
 )
 
+func startPprof(logChan chan<- utils.LogMessage, logThreshold int) {
+	fmt.Fprintln(os.Stderr, "Started diagnostics server on http://localhost:8081/debug/pprof/")
+
+	server := &http.Server{
+		Addr: "localhost:8081",
+		Handler: utils.LogMiddleware(
+			http.DefaultServeMux,
+			logChan,
+			logThreshold,
+			&utils.LogState{
+				StartTime: time.Now(),
+				Status:    http.StatusOK,
+				Size:      0,
+				Error:     nil,
+				CheckAuth: true,
+			},
+		),
+		ReadHeaderTimeout: 3 * time.Second,
+	}
+
+	err := server.ListenAndServe()
+	if err != nil {
+		fmt.Fprintf(
+			os.Stderr,
+			"Error while starting diagnostics server on port 8081\n • Error Message: %s\n",
+			err,
+		)
+		return
+	}
+}
+
+func writeLogs(logChan chan utils.LogMessage, logBuf *bufio.Writer) {
+	ticker := time.NewTicker(2500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case msg, ok := <-logChan:
+			if !ok {
+				return
+			}
+
+			errStr := "\n"
+			if msg.Error != nil {
+				errStr = fmt.Sprintf(" | Error: %s\n", msg.Error)
+			}
+
+			_, err := fmt.Fprintf(
+				logBuf,
+				"[%s] %s %s: Status: %d | Size: %d | Time: %s%s",
+				msg.StartTime.Format("15:04:05"),
+				msg.Method,
+				msg.URL,
+				msg.Status,
+				msg.Size,
+				msg.Duration,
+				errStr,
+			)
+
+			if err != nil {
+				fmt.Fprintln(
+					os.Stderr,
+					"Failed to write log at:",
+					msg.StartTime.Local().Format("15:04:05"),
+				)
+			}
+		case <-ticker.C:
+			err := logBuf.Flush()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Failed to flush logs")
+			}
+		}
+	}
+}
+
 func main() {
 	port := ""
 	dir := ""
@@ -49,55 +124,11 @@ func main() {
 	logChan := make(chan utils.LogMessage, 16*1024)
 	logBuf := bufio.NewWriterSize(os.Stderr, 1024*1024)
 
-	writeLogs := func() {
-		ticker := time.NewTicker(2500 * time.Millisecond)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case msg, ok := <-logChan:
-				if !ok {
-					return
-				}
-
-				errStr := "\n"
-				if msg.Error != nil {
-					errStr = fmt.Sprintf(" | Error: %s\n", msg.Error)
-				}
-
-				_, err := fmt.Fprintf(
-					logBuf,
-					"[%s] %s %s: Status: %d | Size: %d | Time: %s%s",
-					msg.StartTime.Format("15:04:05"),
-					msg.Method,
-					msg.URL,
-					msg.Status,
-					msg.Size,
-					msg.Duration,
-					errStr,
-				)
-
-				if err != nil {
-					fmt.Fprintln(
-						os.Stderr,
-						"Failed to write log at:",
-						msg.StartTime.Local().Format("15:04:05"),
-					)
-				}
-			case <-ticker.C:
-				err := logBuf.Flush()
-				if err != nil {
-					fmt.Fprintln(os.Stderr, "Failed to flush logs")
-				}
-			}
-		}
-	}
-
-	go writeLogs()
+	go writeLogs(logChan, logBuf)
 
 	defer func() {
 		close(logChan)
-		writeLogs()
+		writeLogs(logChan, logBuf)
 
 		err := logBuf.Flush()
 		if err != nil {
@@ -107,15 +138,18 @@ func main() {
 		}
 	}()
 
+	state := utils.LogState{
+		StartTime: time.Now(),
+		Status:    http.StatusOK,
+		Size:      0,
+		Error:     nil,
+		CheckAuth: false,
+	}
+
 	serverMux := http.NewServeMux()
+
 	serverMux.HandleFunc("GET /", func(w http.ResponseWriter, req *http.Request) {
-		state := utils.LogState{
-			StartTime: time.Now(),
-			Status:    http.StatusOK,
-			Size:      0,
-			Error:     nil,
-			CheckAuth: false,
-		}
+		localState := state
 
 		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			handlers.RequestHandler(
@@ -126,18 +160,14 @@ func main() {
 					Cache:        &cache,
 					CacheEnabled: cacheEnabled,
 				},
-				&state,
+				&localState,
 			)
 		}), logChan, logThreshold, &state).ServeHTTP(w, req)
 	})
+
 	serverMux.HandleFunc("GET /test", func(w http.ResponseWriter, req *http.Request) {
-		state := utils.LogState{
-			StartTime: time.Now(),
-			Status:    http.StatusOK,
-			Size:      0,
-			Error:     nil,
-			CheckAuth: true,
-		}
+		localState := state
+		state.CheckAuth = true
 
 		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			handlers.TestHandler(
@@ -145,40 +175,10 @@ func main() {
 				r,
 				&state,
 			)
-		}), logChan, logThreshold, &state).ServeHTTP(w, req)
+		}), logChan, logThreshold, &localState).ServeHTTP(w, req)
 	})
 
-	go func() {
-		fmt.Fprintln(os.Stderr, "Started diagnostics server on http://localhost:8081/debug/pprof/")
-
-		server := &http.Server{
-			Addr: "localhost:8081",
-			Handler: utils.LogMiddleware(
-				http.DefaultServeMux,
-				logChan,
-				logThreshold,
-				&utils.LogState{
-					StartTime: time.Now(),
-					Status:    http.StatusOK,
-					Size:      0,
-					Error:     nil,
-					CheckAuth: true,
-				},
-			),
-			ReadHeaderTimeout: 3 * time.Second,
-		}
-
-		err := server.ListenAndServe()
-		if err != nil {
-			fmt.Fprintf(
-				os.Stderr,
-				"Error while starting diagnostics server on port 8081\n • Error Message: %s\n",
-				err,
-			)
-
-			return
-		}
-	}()
+	go startPprof(logChan, logThreshold)
 
 	server := &http.Server{
 		Addr:              ":" + port,
