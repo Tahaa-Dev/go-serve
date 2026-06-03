@@ -6,9 +6,10 @@ import (
 )
 
 type CacheEntry struct {
-	Mu       sync.RWMutex
-	IsLoaded bool
-	Data     []byte
+	Mu          sync.RWMutex
+	IsLoaded    bool
+	Data        []byte
+	ContentType string
 }
 
 type Cache struct {
@@ -23,7 +24,7 @@ func (c *Cache) Get(file *string) *CacheEntry {
 	entry := c.Files[*file]
 
 	if entry == nil {
-		c.Files[*file] = &CacheEntry{sync.RWMutex{}, false, nil}
+		c.Files[*file] = &CacheEntry{sync.RWMutex{}, false, nil, "NOT ADDED"}
 
 		return c.Files[*file]
 	}
@@ -43,8 +44,14 @@ type LogMessage struct {
 
 type ReqHandlerOpts struct {
 	Dir          string
-	LogThreshold int
-	LogChan      chan<- LogMessage
 	Cache        *Cache
 	CacheEnabled bool
+}
+
+type LogState struct {
+	StartTime time.Time
+	Status    int
+	Size      int
+	Error     error
+	CheckAuth bool
 }

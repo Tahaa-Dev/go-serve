@@ -54,14 +54,13 @@ func Auth(
 	status *int,
 	err *error,
 	authHeader string,
-	reqName string,
 	w http.ResponseWriter,
 ) bool {
 	if subtle.ConstantTimeCompare(
 		[]byte(authHeader),
 		[]byte("Bearer "+AuthVar),
 	) == 0 {
-		errStr := "unauthorized " + reqName + " request"
+		errStr := "unauthorized request attempt"
 		*status = http.StatusUnauthorized
 		*err = errors.New(errStr)
 
@@ -78,23 +77,19 @@ func LogMiddleware(
 	next http.Handler,
 	logChan chan<- LogMessage,
 	logThreshold int,
+	state *LogState,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		start := time.Now()
-		status := http.StatusOK
-		bytes := 0
-		var outputErr error
-
 		defer func() {
 			LogRequest(
 				LogMessage{
-					start,
-					time.Since(start),
+					state.StartTime,
+					time.Since(state.StartTime),
 					req.URL.Path,
 					req.Method,
-					status,
-					bytes,
-					outputErr,
+					state.Status,
+					state.Size,
+					state.Error,
 				},
 				logChan,
 				logThreshold,
@@ -102,11 +97,10 @@ func LogMiddleware(
 			)
 		}()
 
-		if !Auth(
-			&status,
-			&outputErr,
+		if state.CheckAuth && !Auth(
+			&state.Status,
+			&state.Error,
 			req.Header.Get("Authorization"),
-			"pprof diagnostics route",
 			w,
 		) {
 			return

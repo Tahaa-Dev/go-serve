@@ -4,10 +4,10 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"net/http"
-	// #nosec G108 -- ppprof server is wrapped in auth middleware and is on local network on internal 8081 port
 	"go-serve/handlers"
 	"go-serve/utils"
+	"net/http"
+	// #nosec G108 -- ppprof server is wrapped in auth middleware and is on local network on internal 8081 port
 	_ "net/http/pprof"
 	"os"
 	"sync"
@@ -68,7 +68,7 @@ func main() {
 				_, err := fmt.Fprintf(
 					logBuf,
 					"[%s] %s %s: Status: %d | Size: %d | Time: %s%s",
-					msg.StartTime.Local().Format("15:04:05"),
+					msg.StartTime.Format("15:04:05"),
 					msg.Method,
 					msg.URL,
 					msg.Status,
@@ -109,28 +109,62 @@ func main() {
 
 	serverMux := http.NewServeMux()
 	serverMux.HandleFunc("GET /", func(w http.ResponseWriter, req *http.Request) {
-		handlers.RequestHandler(
-			w,
-			req,
-			utils.ReqHandlerOpts{
-				Dir:          dir,
-				LogThreshold: logThreshold,
-				LogChan:      logChan,
-				Cache:        &cache,
-				CacheEnabled: cacheEnabled,
-			},
-		)
+		state := utils.LogState{
+			StartTime: time.Now(),
+			Status:    http.StatusOK,
+			Size:      0,
+			Error:     nil,
+			CheckAuth: false,
+		}
+
+		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handlers.RequestHandler(
+				w,
+				r,
+				utils.ReqHandlerOpts{
+					Dir:          dir,
+					Cache:        &cache,
+					CacheEnabled: cacheEnabled,
+				},
+				&state,
+			)
+		}), logChan, logThreshold, &state).ServeHTTP(w, req)
 	})
 	serverMux.HandleFunc("GET /test", func(w http.ResponseWriter, req *http.Request) {
-		handlers.TestHandler(w, req, logThreshold, logChan)
+		state := utils.LogState{
+			StartTime: time.Now(),
+			Status:    http.StatusOK,
+			Size:      0,
+			Error:     nil,
+			CheckAuth: true,
+		}
+
+		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handlers.TestHandler(
+				w,
+				r,
+				&state,
+			)
+		}), logChan, logThreshold, &state).ServeHTTP(w, req)
 	})
 
 	go func() {
 		fmt.Fprintln(os.Stderr, "Started diagnostics server on http://localhost:8081/debug/pprof/")
 
 		server := &http.Server{
-			Addr:              "localhost:8081",
-			Handler:           utils.LogMiddleware(http.DefaultServeMux, logChan, logThreshold),
+			Addr: "localhost:8081",
+			Handler: utils.LogMiddleware(
+				http.DefaultServeMux,
+				logChan,
+				logThreshold,
+				&utils.LogState{
+					StartTime: time.Now(),
+					Status:    http.StatusOK,
+					Size:      0,
+					Error:     nil,
+					CheckAuth: true,
+				},
+			),
 			ReadHeaderTimeout: 3 * time.Second,
 		}
 

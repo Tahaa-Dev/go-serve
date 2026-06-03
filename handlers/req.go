@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 )
 
 var bufPool = sync.Pool{
@@ -22,44 +21,36 @@ func RequestHandler(
 	w http.ResponseWriter,
 	req *http.Request,
 	opts utils.ReqHandlerOpts,
+	state *utils.LogState,
 ) {
-	start := time.Now()
-	status := http.StatusOK
-	size := 0
 	var cachedEntry *utils.CacheEntry
-	var outputErr error
-
-	defer func() {
-		utils.LogRequest(
-			utils.LogMessage{
-				StartTime: start,
-				Duration:  time.Since(start),
-				URL:       req.URL.Path,
-				Method:    req.Method,
-				Status:    status,
-				Size:      size,
-				Error:     outputErr,
-			},
-			opts.LogChan,
-			opts.LogThreshold,
-			req.Header.Get("Logging"),
-		)
-	}()
 
 	safePath := filepath.Clean(req.URL.Path)
 	file := filepath.Join(opts.Dir, safePath)
+
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 
 	if opts.CacheEnabled {
 		cachedFile := opts.Cache.Get(&file)
 
 		checkCache := func() {
+			contentType := ""
+
+			if cachedFile.ContentType == "NOT ADDED" {
+				contentType = http.DetectContentType(cachedFile.Data)
+			} else {
+				contentType = cachedFile.ContentType
+			}
+
+			w.Header().Set("Content-Type", contentType)
+			// #nosec G705 -- intentional file server design
 			bytes, err := w.Write(cachedFile.Data)
-			size = bytes
+			state.Size = bytes
 
 			if err != nil {
-				status = http.StatusBadGateway
-				outputErr = err
-				http.Error(w, outputErr.Error(), status)
+				state.Status = http.StatusBadGateway
+				state.Error = err
+				http.Error(w, state.Error.Error(), state.Status)
 			}
 		}
 
@@ -85,9 +76,9 @@ func RequestHandler(
 	// #nosec G304 -- path is sanitized before cache check
 	openFile, err := os.OpenFile(file, os.O_RDONLY, 0400)
 	if err != nil {
-		status = http.StatusNotFound
-		outputErr = err
-		http.Error(w, outputErr.Error(), status)
+		state.Status = http.StatusNotFound
+		state.Error = err
+		http.Error(w, state.Error.Error(), state.Status)
 		return
 	}
 
@@ -111,7 +102,7 @@ func RequestHandler(
 
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
-
+	first := true
 	for {
 		bytes, err := openFile.Read((*buf))
 
@@ -120,26 +111,37 @@ func RequestHandler(
 		}
 
 		if err != nil && err != io.EOF {
-			status = http.StatusInternalServerError
-			outputErr = err
-			http.Error(w, outputErr.Error(), status)
+			state.Status = http.StatusInternalServerError
+			state.Error = err
+			http.Error(w, state.Error.Error(), state.Status)
 			return
+		}
+
+		contentType := ""
+		if first {
+			contentType = http.DetectContentType((*buf)[:bytes])
+			w.Header().Set("Content-Type", contentType)
 		}
 
 		bytesWritten, err := w.Write((*buf)[:bytes])
 
 		if err != nil {
-			status = http.StatusBadGateway
-			outputErr = err
-			http.Error(w, outputErr.Error(), status)
+			state.Status = http.StatusBadGateway
+			state.Error = err
+			http.Error(w, state.Error.Error(), state.Status)
 			return
 		}
 
 		if opts.CacheEnabled {
 			cachedEntry.Data = append(cachedEntry.Data, (*buf)[:bytes]...)
+			if first {
+				cachedEntry.ContentType = contentType
+			}
 		}
 
-		size += bytesWritten
+		state.Size += bytesWritten
+
+		first = false
 	}
 
 	cachedEntry.IsLoaded = true
