@@ -1,14 +1,17 @@
 package handlers
 
 import (
+	"bytes"
 	"fmt"
-	"github.com/Tahaa-Dev/go-serve/utils"
 	"io"
+	"io/fs"
 	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/Tahaa-Dev/go-serve/utils"
 )
 
 var bufPool = sync.Pool{
@@ -48,8 +51,8 @@ func RequestHandler(
 			w.Header().Set("Content-Type", contentType)
 			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(cachedFile.Data)))
 			// #nosec G705 -- intentional file server design
-			bytes, err := w.Write(cachedFile.Data)
-			state.Size = bytes
+			length, err := w.Write(cachedFile.Data)
+			state.Size = length
 
 			if err != nil {
 				state.Status = http.StatusBadGateway
@@ -82,9 +85,9 @@ func RequestHandler(
 		contentType = "application/octet-stream"
 	}
 
-	file := filepath.Join(opts.Dir, safePath)
+	fullPath := filepath.Join(opts.Dir, safePath)
 	// #nosec G304 -- path is sanitized before cache check
-	openFile, err := os.OpenFile(file, os.O_RDONLY, 0400)
+	openFile, err := os.OpenFile(fullPath, os.O_RDONLY, 0400)
 	if err != nil {
 		state.Status = http.StatusNotFound
 		state.Error = err
@@ -95,28 +98,87 @@ func RequestHandler(
 	defer func() {
 		err := openFile.Close()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Failed to close file:", file)
+			fmt.Fprintln(os.Stderr, "Failed to close file:", fullPath)
 		}
 	}()
 
-	if fileInfo, err := openFile.Stat(); err == nil {
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
-	} else {
-		fmt.Fprintf(
-			os.Stderr,
-			"Error while setting Content-Length header for request to path: %s\n • Error Message: %s",
-			file,
-			err,
+	fileInfo, err := openFile.Stat()
+	if err != nil {
+		state.Error = err
+		state.Status = http.StatusInternalServerError
+		http.Error(w, state.Error.Error(), state.Status)
+		return
+	}
+
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
+
+	if fileInfo.IsDir() {
+		contentType = "text/html"
+		w.Header().Set("Content-Type", contentType)
+		paths := ""
+
+		err := filepath.WalkDir(fullPath, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if !d.IsDir() {
+				paths += fmt.Sprintf("\n<li>%s</li>", path)
+			}
+
+			return nil
+		})
+
+		if err != nil {
+			state.Error = err
+			state.Status = http.StatusInternalServerError
+			http.Error(w, state.Error.Error(), state.Status)
+			return
+		}
+
+		// allocates a new array since we can't use the pool as formatting can grow the array
+		// and directory listing requests are very rare as well
+		dirListing := bytes.NewBuffer(make([]byte, 0, 4*1024))
+		n, _ := fmt.Fprintf(
+			dirListing,
+			"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Directory "+
+				"listing for %s</title>\n</head>\n<body>\n<h1>Directory listing for %s</h1>"+
+				"\n<hr>\n<ul>%s\n</ul>\n<hr>\n</body>\n</html>",
+			fullPath,
+			fullPath,
+			paths,
 		)
+
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", n))
+
+		listing := dirListing.Bytes()
+		bytesWritten, err := w.Write(listing)
+
+		state.Size += bytesWritten
+
+		if err != nil {
+			state.Status = http.StatusBadGateway
+			state.Error = err
+			http.Error(w, state.Error.Error(), state.Status)
+			return
+		}
+
+		if opts.Cache.Cap > 0 {
+			opts.Cache.Add(&safePath, listing[:n], cachedEntry)
+			cachedEntry.ContentType = contentType
+		}
+
+		cachedEntry.IsLoaded = true
+		return
 	}
 
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
 	first := true
 	for {
-		bytes, err := openFile.Read((*buf))
+		bytesRead, err := openFile.Read((*buf))
 
-		if bytes == 0 {
+		if bytesRead == 0 {
 			break
 		}
 
@@ -131,7 +193,9 @@ func RequestHandler(
 			w.Header().Set("Content-Type", contentType)
 		}
 
-		bytesWritten, err := w.Write((*buf)[:bytes])
+		bytesWritten, err := w.Write((*buf)[:bytesRead])
+
+		state.Size += bytesWritten
 
 		if err != nil {
 			state.Status = http.StatusBadGateway
@@ -141,11 +205,9 @@ func RequestHandler(
 		}
 
 		if opts.Cache.Cap > 0 {
-			opts.Cache.Add(&safePath, (*buf)[:bytes], cachedEntry)
+			opts.Cache.Add(&safePath, (*buf)[:bytesRead], cachedEntry)
 			cachedEntry.ContentType = contentType
 		}
-
-		state.Size += bytesWritten
 
 		first = false
 	}
