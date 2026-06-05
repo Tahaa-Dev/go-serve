@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go-serve/utils"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -26,23 +27,26 @@ func RequestHandler(
 	var cachedEntry *utils.CacheEntry
 
 	safePath := filepath.Clean(req.URL.Path)
-	file := filepath.Join(opts.Dir, safePath)
 
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 
 	if opts.Cache.Cap > 0 {
-		cachedFile := opts.Cache.Get(&file)
+		cachedFile := opts.Cache.Get(&safePath)
 
 		checkCache := func() {
 			contentType := ""
 
 			if cachedFile.ContentType == "NOT ADDED" {
-				contentType = http.DetectContentType(cachedFile.Data)
+				contentType = mime.TypeByExtension(filepath.Ext(safePath))
+				if contentType == "" {
+					contentType = "application/octet-stream"
+				}
 			} else {
 				contentType = cachedFile.ContentType
 			}
 
 			w.Header().Set("Content-Type", contentType)
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(cachedFile.Data)))
 			// #nosec G705 -- intentional file server design
 			bytes, err := w.Write(cachedFile.Data)
 			state.Size = bytes
@@ -73,6 +77,12 @@ func RequestHandler(
 		}
 	}
 
+	contentType := mime.TypeByExtension(filepath.Ext(safePath))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	file := filepath.Join(opts.Dir, safePath)
 	// #nosec G304 -- path is sanitized before cache check
 	openFile, err := os.OpenFile(file, os.O_RDONLY, 0400)
 	if err != nil {
@@ -117,9 +127,7 @@ func RequestHandler(
 			return
 		}
 
-		contentType := ""
 		if first {
-			contentType = http.DetectContentType((*buf)[:bytes])
 			w.Header().Set("Content-Type", contentType)
 		}
 
@@ -133,7 +141,7 @@ func RequestHandler(
 		}
 
 		if opts.Cache.Cap > 0 {
-			opts.Cache.Add(&file, (*buf)[:bytes], cachedEntry)
+			opts.Cache.Add(&safePath, (*buf)[:bytes], cachedEntry)
 			cachedEntry.ContentType = contentType
 		}
 

@@ -24,9 +24,9 @@ type Cache struct {
 }
 
 func NewCache(cacheCap uint) Cache {
-	buckets := make([][]byte, 100)
+	buckets := make([][]byte, 64)
 
-	for i := range 100 {
+	for i := range 64 {
 		buckets[i] = make([]byte, 0, 128)
 	}
 
@@ -48,7 +48,7 @@ func (c *Cache) Get(file *string) *CacheEntry {
 
 	entry, exists := c.Files[*file]
 	if !exists {
-		newMin := (c.MinFreq + 1) % 100
+		newMin := (c.MinFreq + 1) % 64
 
 		c.Files[*file] = &CacheEntry{
 			sync.RWMutex{},
@@ -62,7 +62,7 @@ func (c *Cache) Get(file *string) *CacheEntry {
 	}
 
 	oldIdx := entry.Freq
-	newIdx := (oldIdx + 1) % 100
+	newIdx := (oldIdx + 1) % 64
 
 	startIdx := bytes.Index(c.LFUBuckets[oldIdx], fileBytes)
 	endIdx := startIdx + len(fileBytes)
@@ -98,7 +98,7 @@ func (c *Cache) Add(file *string, data []byte, entry *CacheEntry) {
 	}
 
 	if entry.Data == nil {
-		newMin := (c.MinFreq + 1) % 100
+		newMin := (c.MinFreq + 1) % 64
 
 		if len(c.LFUBuckets[newMin]) > 0 {
 			c.LFUBuckets[newMin] = append(c.LFUBuckets[newMin], 0)
@@ -127,7 +127,7 @@ func (c *Cache) evict() {
 
 	// if MinFreq is empty, find the next active bucket and set MinFreq to its idx
 	if len(c.LFUBuckets[c.MinFreq]) == 0 {
-		for i, bucket := range c.LFUBuckets[(c.MinFreq+1)%100:] {
+		for i, bucket := range c.LFUBuckets[(c.MinFreq+1)%64:] {
 			if len(bucket) > 0 {
 				c.MinFreq = i
 				break
