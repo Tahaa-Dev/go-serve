@@ -10,7 +10,6 @@ import (
 	// #nosec G108 -- ppprof server is wrapped in auth middleware and is on local network on internal 8081 port
 	_ "net/http/pprof"
 	"os"
-	"sync"
 	"time"
 )
 
@@ -92,11 +91,11 @@ func writeLogs(logChan chan utils.LogMessage, logBuf *bufio.Writer) {
 func main() {
 	port := ""
 	dir := ""
-	cacheEnabled := false
+	cacheCap := uint(0)
 	logLevel := ""
 	flag.StringVar(&port, "p", "8000", "Serve on custom port (go-serve -p 3000)\n •")
 	flag.StringVar(&dir, "d", ".", "Directory to serve (go-serve -d ./website)\n •")
-	flag.BoolVar(&cacheEnabled, "c", false, "Enable caching files in memory (go-serve -c)\n •")
+	flag.UintVar(&cacheCap, "c", 64, "Specify the limit of cache entries (go-serve -c 128)\n •")
 	flag.StringVar(
 		&logLevel,
 		"l",
@@ -116,10 +115,7 @@ func main() {
 	default:
 	}
 
-	var cache utils.Cache
-	if cacheEnabled {
-		cache = utils.Cache{Mu: sync.Mutex{}, Files: make(map[string]*utils.CacheEntry)}
-	}
+	cache := utils.NewCache(cacheCap)
 
 	logChan := make(chan utils.LogMessage, 16*1024)
 	logBuf := bufio.NewWriterSize(os.Stderr, 1024*1024)
@@ -138,36 +134,38 @@ func main() {
 		}
 	}()
 
-	state := utils.LogState{
-		StartTime: time.Now(),
-		Status:    http.StatusOK,
-		Size:      0,
-		Error:     nil,
-		CheckAuth: false,
-	}
-
 	serverMux := http.NewServeMux()
 
 	serverMux.HandleFunc("GET /", func(w http.ResponseWriter, req *http.Request) {
-		localState := state
+		state := utils.LogState{
+			StartTime: time.Now(),
+			Status:    http.StatusOK,
+			Size:      0,
+			Error:     nil,
+			CheckAuth: false,
+		}
 
 		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			handlers.RequestHandler(
 				w,
 				r,
 				utils.ReqHandlerOpts{
-					Dir:          dir,
-					Cache:        &cache,
-					CacheEnabled: cacheEnabled,
+					Dir:   dir,
+					Cache: &cache,
 				},
-				&localState,
+				&state,
 			)
 		}), logChan, logThreshold, &state).ServeHTTP(w, req)
 	})
 
 	serverMux.HandleFunc("GET /test", func(w http.ResponseWriter, req *http.Request) {
-		localState := state
-		state.CheckAuth = true
+		state := utils.LogState{
+			StartTime: time.Now(),
+			Status:    http.StatusOK,
+			Size:      0,
+			Error:     nil,
+			CheckAuth: true,
+		}
 
 		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			handlers.TestHandler(
@@ -175,7 +173,7 @@ func main() {
 				r,
 				&state,
 			)
-		}), logChan, logThreshold, &localState).ServeHTTP(w, req)
+		}), logChan, logThreshold, &state).ServeHTTP(w, req)
 	})
 
 	go startPprof(logChan, logThreshold)

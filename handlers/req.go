@@ -30,7 +30,7 @@ func RequestHandler(
 
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 
-	if opts.CacheEnabled {
+	if opts.Cache.Cap > 0 {
 		cachedFile := opts.Cache.Get(&file)
 
 		checkCache := func() {
@@ -132,11 +132,9 @@ func RequestHandler(
 			return
 		}
 
-		if opts.CacheEnabled {
-			cachedEntry.Data = append(cachedEntry.Data, (*buf)[:bytes]...)
-			if first {
-				cachedEntry.ContentType = contentType
-			}
+		if opts.Cache.Cap > 0 {
+			opts.Cache.Add(&file, (*buf)[:bytes], cachedEntry)
+			cachedEntry.ContentType = contentType
 		}
 
 		state.Size += bytesWritten
