@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"fmt"
-	"go-serve/utils"
+	"github.com/Tahaa-Dev/go-serve/utils"
 	"io"
 	"mime"
 	"net/http"

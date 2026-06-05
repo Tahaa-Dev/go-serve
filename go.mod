@@ -1,3 +1,3 @@
-module go-serve
+module github.com/Tahaa-Dev/go-serve
 
 go 1.26.3

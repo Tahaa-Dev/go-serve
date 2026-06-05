@@ -4,8 +4,8 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"go-serve/handlers"
-	"go-serve/utils"
+	"github.com/Tahaa-Dev/go-serve/handlers"
+	"github.com/Tahaa-Dev/go-serve/utils"
 	"net/http"
 	// #nosec G108 -- ppprof server is wrapped in auth middleware and is on local network on internal 8081 port
 	_ "net/http/pprof"
