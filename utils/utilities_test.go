@@ -2,6 +2,7 @@ package utils_test
 
 import (
 	"net/http"
+	"net/url"
 	"os"
 	"testing"
 	"time"
@@ -80,5 +81,98 @@ func TestAuthForbidden(t *testing.T) {
 		err.Error() != "unauthorized request attempt" ||
 		w.Header().Get("WWW-Authenticate") != "Bearer realm=\"Test\"" {
 		t.Error("Expected Auth() to not authorize request")
+	}
+}
+
+func TestLogMiddlewareErrorless(t *testing.T) {
+	state := utils.NewLogState(true)
+	ch := make(chan utils.LogMessage, 1)
+	resp := testResponseWriter{make([]byte, 0), http.StatusOK, make(map[string][]string)}
+
+	utils.LogMiddleware(
+		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}),
+		ch,
+		200,
+		&state,
+		"Test",
+	).ServeHTTP(&resp, &http.Request{
+		Header: map[string][]string{
+			"Authorization": {"Bearer " + os.Getenv("GO_SERVE_AUTH")},
+		},
+		URL:    &url.URL{Path: "/"},
+		Method: "GET",
+	})
+
+	close(ch)
+
+	i := 0
+	for range ch {
+		i++
+	}
+	if resp.status != http.StatusOK || state.Status != http.StatusOK || state.Error != nil ||
+		i != 1 ||
+		resp.Header().Get("WWW-Authenticate") == "Bearer realm=\"Test\"" {
+		t.Error("Expected LogMiddleware to send one log through the channel without mutating state")
+	}
+}
+
+func TestLogMiddlewareAuthError(t *testing.T) {
+	state := utils.NewLogState(true)
+	ch := make(chan utils.LogMessage, 1)
+	resp := testResponseWriter{make([]byte, 0), http.StatusOK, make(map[string][]string)}
+
+	utils.LogMiddleware(
+		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}),
+		ch,
+		200,
+		&state,
+		"Realm",
+	).ServeHTTP(&resp, &http.Request{
+		Header: map[string][]string{},
+		URL:    &url.URL{Path: "/"},
+		Method: "GET",
+	})
+
+	close(ch)
+
+	i := 0
+	for range ch {
+		i++
+	}
+
+	if resp.status != http.StatusUnauthorized || state.Status != http.StatusUnauthorized ||
+		state.Error.Error() != "unauthorized request attempt" ||
+		i != 1 ||
+		resp.Header().Get("WWW-Authenticate") != "Bearer realm=\"Realm\"" {
+		t.Error("Expected LogMiddleware to send one log through the channel and mutate state")
+	}
+}
+
+func TestLogMiddlewareStateMutation(t *testing.T) {
+	state := utils.NewLogState(false)
+	ch := make(chan utils.LogMessage, 1)
+	resp := testResponseWriter{make([]byte, 0), http.StatusOK, make(map[string][]string)}
+
+	utils.LogMiddleware(
+		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+			state.Status = http.StatusInternalServerError
+		}),
+		ch,
+		200,
+		&state,
+		"Test",
+	).ServeHTTP(&resp, &http.Request{
+		URL:    &url.URL{Path: "/"},
+		Method: "GET",
+	})
+
+	close(ch)
+
+	msg := <-ch
+
+	if msg.Status != http.StatusInternalServerError ||
+		state.Status != http.StatusInternalServerError ||
+		resp.Header().Get("WWW-Authenticate") == "Bearer realm=\"Test\"" {
+		t.Error("Expected LogMiddleware to send one log through the channel with mutated state")
 	}
 }
