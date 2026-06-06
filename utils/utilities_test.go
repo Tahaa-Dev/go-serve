@@ -237,3 +237,60 @@ func TestWriteLogsIdle(t *testing.T) {
 		t.Errorf("Enexpected log output:\n%s", buffer)
 	}
 }
+
+func TestWriteLogsActive(t *testing.T) {
+	ch := make(chan utils.LogMessage, 1)
+	b := bytes.NewBuffer([]byte{})
+	buf := bufio.NewWriterSize(b, 1024*1024)
+
+	go utils.WriteLogs(ch, buf, 1, 25000)
+
+	testTime := time.Now()
+	pageSize := (6 * 1024 * 1024) + 79
+
+	utils.LogRequest(
+		utils.LogMessage{
+			StartTime: testTime,
+			Duration:  1 * time.Second,
+			Method:    "GET",
+			URL:       "/page.html",
+			Status:    http.StatusOK,
+			Size:      pageSize,
+			Error:     nil,
+		},
+		ch,
+		200,
+		"Info",
+	)
+	utils.LogRequest(
+		utils.LogMessage{
+			StartTime: testTime,
+			Duration:  25 * time.Millisecond,
+			Method:    "GET",
+			URL:       "/",
+			Status:    http.StatusInternalServerError,
+			Size:      0,
+			Error:     errors.New("TEST"),
+		},
+		ch,
+		200,
+		"Info",
+	)
+
+	time.Sleep(1100 * time.Millisecond)
+	close(ch)
+
+	if buffer := b.Bytes(); !bytes.Equal(
+		buffer,
+		fmt.Appendf(
+			[]byte{},
+			"[%s] GET /page.html: Status: 200 | Size: %d | Time: 1s"+
+				"\n[%s] GET /: Status: 500 | Size: 0 | Time: 25ms | Error: TEST\n",
+			testTime.Format("15:04:05"),
+			pageSize,
+			testTime.Format("15:04:05"),
+		),
+	) {
+		t.Errorf("Enexpected log output:\n%s", buffer)
+	}
+}
