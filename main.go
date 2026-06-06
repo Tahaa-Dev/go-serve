@@ -73,11 +73,11 @@ func main() {
 	logChan := make(chan utils.LogMessage, 16*1024)
 	logBuf := bufio.NewWriterSize(os.Stderr, 1024*1024)
 
-	go utils.WriteLogs(logChan, logBuf)
+	go utils.WriteLogs(logChan, logBuf, 10, 2500)
 
 	defer func() {
 		close(logChan)
-		utils.WriteLogs(logChan, logBuf)
+		utils.WriteLogs(logChan, logBuf, 1, 500)
 
 		err := logBuf.Flush()
 		if err != nil {

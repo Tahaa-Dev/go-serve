@@ -114,9 +114,13 @@ func LogMiddleware(
 	})
 }
 
-func WriteLogs(logChan chan LogMessage, logBuf *bufio.Writer) {
-	ticker := time.NewTicker(2500 * time.Millisecond)
-	defer ticker.Stop()
+func WriteLogs(logChan chan LogMessage, logBuf *bufio.Writer, maxAge uint, idleTime uint) {
+	idleDuration := time.Duration(idleTime) * time.Millisecond
+	idleTicker := time.NewTicker(idleDuration)
+	defer idleTicker.Stop()
+
+	maxDuration := time.Duration(maxAge) * time.Second
+	maxAgeTicker := time.NewTicker(maxDuration)
 
 	for {
 		select {
@@ -149,7 +153,15 @@ func WriteLogs(logChan chan LogMessage, logBuf *bufio.Writer) {
 					msg.StartTime.Local().Format("15:04:05"),
 				)
 			}
-		case <-ticker.C:
+		case <-idleTicker.C:
+			err := logBuf.Flush()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Failed to flush logs")
+			}
+
+			idleTicker.Reset(idleDuration)
+
+		case <-maxAgeTicker.C:
 			err := logBuf.Flush()
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "Failed to flush logs")
