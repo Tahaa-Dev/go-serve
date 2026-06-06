@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bufio"
 	"crypto/subtle"
 	"errors"
 	"fmt"
@@ -55,6 +56,7 @@ func Auth(
 	err *error,
 	authHeader string,
 	w http.ResponseWriter,
+	bearerRealm string,
 ) bool {
 	if subtle.ConstantTimeCompare(
 		[]byte(authHeader),
@@ -64,7 +66,7 @@ func Auth(
 		*status = http.StatusUnauthorized
 		*err = errors.New(errStr)
 
-		w.Header().Set("WWW-Authenticate", "Bearer realm=\"Test\"")
+		w.Header().Set("WWW-Authenticate", fmt.Sprintf("Bearer realm=\"%s\"", bearerRealm))
 		http.Error(w, errStr, *status)
 
 		return false
@@ -78,6 +80,7 @@ func LogMiddleware(
 	logChan chan<- LogMessage,
 	logThreshold int,
 	state *LogState,
+	bearerRealm string,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		defer func() {
@@ -102,10 +105,55 @@ func LogMiddleware(
 			&state.Error,
 			req.Header.Get("Authorization"),
 			w,
+			bearerRealm,
 		) {
 			return
 		}
 
 		next.ServeHTTP(w, req)
 	})
+}
+
+func WriteLogs(logChan chan LogMessage, logBuf *bufio.Writer) {
+	ticker := time.NewTicker(2500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case msg, ok := <-logChan:
+			if !ok {
+				return
+			}
+
+			errStr := "\n"
+			if msg.Error != nil {
+				errStr = fmt.Sprintf(" | Error: %s\n", msg.Error)
+			}
+
+			_, err := fmt.Fprintf(
+				logBuf,
+				"[%s] %s %s: Status: %d | Size: %d | Time: %s%s",
+				msg.StartTime.Format("15:04:05"),
+				msg.Method,
+				msg.URL,
+				msg.Status,
+				msg.Size,
+				msg.Duration,
+				errStr,
+			)
+
+			if err != nil {
+				fmt.Fprintln(
+					os.Stderr,
+					"Failed to write log at:",
+					msg.StartTime.Local().Format("15:04:05"),
+				)
+			}
+		case <-ticker.C:
+			err := logBuf.Flush()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Failed to flush logs")
+			}
+		}
+	}
 }

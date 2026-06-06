@@ -11,7 +11,7 @@
 1. Fork the repository
 2. Create a branch: `git checkout -b feature/your-feature`
 3. Make your changes
-4. Run tests: `go test ./tests`
+4. Run tests: `go test ./...`
 5. Run lints: `golangci-lint run`
 6. Format code: `golines -w .` or `golangci-lint fmt` if you don't have `golangci/golines` installed.
 7. Commit: `git commit -m "Add feature X"`
@@ -24,8 +24,8 @@
 
 - Follow Go standard style enforced by `golines` (which uses gofmt as a formatter then breaks long lines)
 - Run `golangci-lint run` and fix all warnings
-- Run tests with `go test ./tests` and make sure they pass
-- Add tests for new features in ./tests directory
+- Run tests with `go test ./...` and make sure they pass
+- Add tests for new features in the same directory as the tested code
 
 ### Commit Messages
 

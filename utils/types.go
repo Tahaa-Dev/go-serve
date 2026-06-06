@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"net/http"
 	"sync"
 	"time"
 )
@@ -136,6 +137,11 @@ func (c *Cache) evict() {
 	}
 }
 
+type ReqHandlerOpts struct {
+	Dir   string
+	Cache *Cache
+}
+
 type LogMessage struct {
 	StartTime time.Time
 	Duration  time.Duration
@@ -146,15 +152,20 @@ type LogMessage struct {
 	Error     error
 }
 
-type ReqHandlerOpts struct {
-	Dir   string
-	Cache *Cache
-}
-
 type LogState struct {
 	StartTime time.Time
 	Status    int
 	Size      int
 	Error     error
 	CheckAuth bool
+}
+
+func NewLogState(chechAuth bool) LogState {
+	return LogState{
+		StartTime: time.Now(),
+		Status:    http.StatusOK,
+		Size:      0,
+		Error:     nil,
+		CheckAuth: chechAuth,
+	}
 }
