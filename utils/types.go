@@ -85,9 +85,9 @@ func (c *Cache) Get(file *string) *CacheEntry {
 		c.MinFreq = newIdx
 	}
 
-	entry.Freq = newIdx
+	c.Files[*file].Freq = newIdx
 
-	return entry
+	return c.Files[*file]
 }
 
 func (c *Cache) Add(file *string, data []byte, entry *CacheEntry) {

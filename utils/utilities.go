@@ -114,7 +114,7 @@ func LogMiddleware(
 	})
 }
 
-func WriteLogs(logChan chan LogMessage, logBuf *bufio.Writer, maxAge uint, idleTime uint) {
+func WriteLogs(logChan chan LogMessage, logBuf *bufio.Writer, maxAge int64, idleTime int64) {
 	idleDuration := time.Duration(idleTime) * time.Millisecond
 	idleTicker := time.NewTicker(idleDuration)
 	defer idleTicker.Stop()

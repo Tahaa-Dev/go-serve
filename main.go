@@ -77,7 +77,7 @@ func main() {
 
 	defer func() {
 		close(logChan)
-		utils.WriteLogs(logChan, logBuf, 1, 500)
+		utils.WriteLogs(logChan, logBuf, 10, 2500)
 
 		err := logBuf.Flush()
 		if err != nil {

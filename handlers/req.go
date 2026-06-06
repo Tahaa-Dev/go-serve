@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"io/fs"
@@ -47,6 +46,7 @@ func RequestHandler(
 			} else {
 				contentType = cachedFile.ContentType
 			}
+			cachedFile.ContentType = contentType
 
 			w.Header().Set("Content-Type", contentType)
 			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(cachedFile.Data)))
@@ -123,7 +123,8 @@ func RequestHandler(
 			}
 
 			if !d.IsDir() {
-				paths += fmt.Sprintf("\n<li>%s</li>", path)
+				path = filepath.Clean(path)[len(opts.Dir)+1:]
+				paths += fmt.Sprintf("\n<li><a href=\"%s\">%s</a></li>", path, path)
 			}
 
 			return nil
@@ -138,21 +139,21 @@ func RequestHandler(
 
 		// allocates a new array since we can't use the pool as formatting can grow the array
 		// and directory listing requests are very rare as well
-		dirListing := bytes.NewBuffer(make([]byte, 0, 4*1024))
-		n, _ := fmt.Fprintf(
+		dirListing := make([]byte, 0, 4*1024)
+		dirListing = fmt.Appendf(
 			dirListing,
 			"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Directory "+
-				"listing for %s</title>\n</head>\n<body>\n<h1>Directory listing for %s</h1>"+
+				"listing for %s/</title>\n</head>\n<body>\n<h1>Directory listing for %s/</h1>"+
 				"\n<hr>\n<ul>%s\n</ul>\n<hr>\n</body>\n</html>",
-			fullPath,
-			fullPath,
+			fullPath[len(opts.Dir):],
+			fullPath[len(opts.Dir):],
 			paths,
 		)
 
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", n))
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(dirListing)))
 
-		listing := dirListing.Bytes()
-		bytesWritten, err := w.Write(listing)
+		// #nosec G705 -- intentional file server design as directory listing is guaranteed to be valid HTML
+		bytesWritten, err := w.Write(dirListing)
 
 		state.Size += bytesWritten
 
@@ -164,7 +165,7 @@ func RequestHandler(
 		}
 
 		if opts.Cache.Cap > 0 {
-			opts.Cache.Add(&safePath, listing[:n], cachedEntry)
+			opts.Cache.Add(&safePath, dirListing, cachedEntry)
 			cachedEntry.ContentType = contentType
 		}
 
