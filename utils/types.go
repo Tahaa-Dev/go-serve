@@ -28,7 +28,8 @@ func NewCache(cacheCap uint) Cache {
 	buckets := make([][]byte, 64)
 
 	for i := range 64 {
-		buckets[i] = make([]byte, 0, 128)
+		// pre-allocate a third of the max capacityb per-bucket to avoid reallocations without over allocating
+		buckets[i] = make([]byte, 0, cacheCap/3)
 	}
 
 	return Cache{
