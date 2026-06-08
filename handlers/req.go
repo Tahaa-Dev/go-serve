@@ -192,6 +192,9 @@ func RequestHandler(
 
 		if first {
 			w.Header().Set("Content-Type", contentType)
+			if opts.Cache.Cap > 0 {
+				cachedEntry.ContentType = contentType
+			}
 		}
 
 		bytesWritten, err := w.Write((*buf)[:bytesRead])
@@ -207,13 +210,12 @@ func RequestHandler(
 
 		if opts.Cache.Cap > 0 {
 			opts.Cache.Add(&safePath, (*buf)[:bytesRead], cachedEntry)
-			cachedEntry.ContentType = contentType
 		}
 
 		first = false
 	}
 
-	if opts.Cache.Cap != 0 {
+	if opts.Cache.Cap > 0 {
 		cachedEntry.IsLoaded = true
 	}
 }

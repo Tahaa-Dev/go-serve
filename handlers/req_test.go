@@ -88,3 +88,76 @@ func TestRequestHandlerNoCache(t *testing.T) {
 		t.Errorf("Unexpected Content-Type header: %s", w.Header().Get("X-Content-Type-Options"))
 	}
 }
+
+func TestRequestHandlerNotCached(t *testing.T) {
+	dir := t.TempDir()
+	file, err := os.CreateTemp(dir, "page.html")
+	if err != nil {
+		t.Error(err.Error())
+		return
+	}
+	data := []byte("<!DOCTYPE html>\n<html>\n<body>\n<h1>Test</h1>\n</body>\n</html>")
+	_, err = file.Write(data)
+	if err != nil {
+		t.Error(err.Error())
+		return
+	}
+
+	cache := utils.NewCache(4)
+	state := utils.NewLogState(false)
+	filename := filepath.Base(file.Name())
+
+	req, err := http.NewRequest("GET", "http://127.0.0.1:8000/"+filename, nil)
+	if err != nil {
+		t.Error(err.Error())
+		return
+	}
+
+	w := testResponseWriter{make([]byte, 0, 1024), http.StatusOK, make(http.Header)}
+
+	handlers.RequestHandler(
+		&w,
+		req,
+		utils.ReqHandlerOpts{Dir: dir, Cache: &cache},
+		&state,
+	)
+
+	if state.Size != len(data) {
+		t.Errorf("Unexpected size state: %d", state.Size)
+	}
+	if state.Status != http.StatusOK {
+		t.Errorf("Unexpected status state: %d", state.Status)
+	}
+	if state.Error != nil {
+		t.Error("Unexpected error:", state.Error.Error())
+	}
+
+	if !bytes.Equal(w.data, data) {
+		t.Errorf("Unexpected data:\n%s", w.data)
+	}
+	// Content-Type will be application/octet-stream since the extension would be unknown
+	if w.Header().Get("Content-Type") != "application/octet-stream" {
+		t.Errorf("Unexpected Content-Type header: %s", w.Header().Get("Content-Type"))
+	}
+	if w.Header().Get("Content-Length") != fmt.Sprintf("%d", len(data)) {
+		t.Errorf("Unexpected Content-Length header: %s", w.Header().Get("Content-Length"))
+	}
+	if w.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("Unexpected Content-Type header: %s", w.Header().Get("X-Content-Type-Options"))
+	}
+
+	name := filepath.Clean(req.URL.Path)
+	entry := cache.Get(&name)
+	if entry.Freq != 1 {
+		t.Errorf("Unexpected entry.Freq: %d", entry.Freq)
+	}
+	if !bytes.Equal(entry.Data, data) {
+		t.Errorf("Unexpected entry.Data:\n%s", entry.Data)
+	}
+	if entry.ContentType != "application/octet-stream" {
+		t.Errorf("Unexpected entry.ContentType: %s", entry.ContentType)
+	}
+	if !entry.IsLoaded {
+		t.Error("Expected entry to be loaded")
+	}
+}
