@@ -27,9 +27,14 @@ type Cache struct {
 func NewCache(cacheCap uint) Cache {
 	buckets := make([][]byte, 64)
 
+	alloc := cacheCap / 3
+	if alloc == 0 && cacheCap != 0 {
+		alloc = 1
+	}
+
 	for i := range 64 {
 		// pre-allocate a third of the max capacityb per-bucket to avoid reallocations without over allocating
-		buckets[i] = make([]byte, 0, cacheCap/3)
+		buckets[i] = make([]byte, 0, alloc)
 	}
 
 	return Cache{

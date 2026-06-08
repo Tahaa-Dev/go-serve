@@ -1,6 +1,7 @@
 package utils_test
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/Tahaa-Dev/go-serve/utils"
@@ -20,9 +21,9 @@ func TestNewCache(t *testing.T) {
 				cap(c1.LFUBuckets[i]),
 				len(c1.LFUBuckets[i]),
 			)
-		case len(c2.LFUBuckets[i]) != 0 || cap(c2.LFUBuckets[i]) != 0:
+		case len(c2.LFUBuckets[i]) != 0 || cap(c2.LFUBuckets[i]) != 1:
 			t.Errorf(
-				"Expected bucket %d c2 capacity and length to be 0, found:\n Capacity: %d\n Length: %d",
+				"Expected bucket %d c2 capacity to be 1 and length to be 0, found:\n Capacity: %d\n Length: %d",
 				i,
 				cap(c2.LFUBuckets[i]),
 				len(c2.LFUBuckets[i]),
@@ -35,5 +36,33 @@ func TestNewCache(t *testing.T) {
 				len(c3.LFUBuckets[i]),
 			)
 		}
+	}
+}
+
+func TestCacheGet(t *testing.T) {
+	cache := utils.NewCache(32)
+	filename := "/page.html"
+	entry := cache.Get(&filename)
+	entry.ContentType = "text/html"
+	data := []byte("<!DOCTYPE html>\n<html>\n<body>\n<h1>test</h1>\n</body>\n</html>")
+
+	cache.Add(
+		&filename,
+		data,
+		entry,
+	)
+
+	entry = cache.Get(&filename)
+
+	if entry.ContentType != "text/html" {
+		t.Error("Expected entry.ContentType to be 'text/html', found:", entry.ContentType)
+	}
+
+	if !bytes.Equal(entry.Data, data) {
+		t.Errorf("Unexpected entry.Data:\n%s", entry.Data)
+	}
+
+	if entry.Freq != 2 {
+		t.Errorf("Expected entry.Freq to be 2, found: %d", entry.Freq)
 	}
 }
