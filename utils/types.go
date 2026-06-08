@@ -55,13 +55,11 @@ func (c *Cache) Get(file *string) *CacheEntry {
 
 	entry, exists := c.Files[*file]
 	if !exists {
-		newMin := (c.MinFreq + 1) % 64
-
 		c.Files[*file] = &CacheEntry{
 			sync.RWMutex{},
 			false,
 			nil,
-			newMin,
+			c.MinFreq,
 			"NOT ADDED",
 		}
 
@@ -105,13 +103,11 @@ func (c *Cache) Add(file *string, data []byte, entry *CacheEntry) {
 	}
 
 	if entry.Data == nil {
-		newMin := (c.MinFreq + 1) % 64
-
-		if len(c.LFUBuckets[newMin]) > 0 {
-			c.LFUBuckets[newMin] = append(c.LFUBuckets[newMin], 0)
+		if len(c.LFUBuckets[c.MinFreq]) > 0 {
+			c.LFUBuckets[c.MinFreq] = append(c.LFUBuckets[c.MinFreq], 0)
 		}
 
-		c.LFUBuckets[newMin] = append(c.LFUBuckets[newMin], []byte(*file)...)
+		c.LFUBuckets[c.MinFreq] = append(c.LFUBuckets[c.MinFreq], []byte(*file)...)
 		c.Size++
 	}
 

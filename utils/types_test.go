@@ -62,7 +62,37 @@ func TestCacheGet(t *testing.T) {
 		t.Errorf("Unexpected entry.Data:\n%s", entry.Data)
 	}
 
-	if entry.Freq != 2 {
-		t.Errorf("Expected entry.Freq to be 2, found: %d", entry.Freq)
+	if entry.Freq != 1 {
+		t.Errorf("Expected entry.Freq to be 1, found: %d", entry.Freq)
+	}
+
+	if cache.MinFreq != 1 {
+		t.Errorf("Unexpected cache.MinFreq: %d", cache.MinFreq)
+	}
+}
+
+func TestCacheAddNoEvict(t *testing.T) {
+	cache := utils.NewCache(32)
+	filename := "/page.html"
+	data := []byte("<!DOCTYPE html>\n<html>\n<body>\n<h1>test</h1>\n</body>\n</html>")
+	cache.Add(&filename, data, cache.Get(&filename))
+
+	if cache.Size != 1 {
+		t.Errorf("Unexpected cache.Size: %d", cache.Size)
+	}
+	if cache.MinFreq != 0 {
+		t.Errorf("Unexpected cache.MinFreq1: %d", cache.MinFreq)
+	}
+	if idx := bytes.Index(cache.LFUBuckets[0], []byte(filename)); idx != 0 {
+		t.Errorf("Unexpected entry LFUBuckets[0] position: %d", idx)
+	}
+	if cache.Get(&filename).Freq != 1 {
+		t.Errorf("Unexpected entry.Freq: %d", cache.Get(&filename).Freq)
+	}
+	if idx := bytes.Index(cache.LFUBuckets[1], []byte(filename)); idx != 0 {
+		t.Errorf("Unexpected entry LFUBuckets[1] position: %d", idx)
+	}
+	if cache.MinFreq != 1 {
+		t.Errorf("Unexpected cache.MinFreq2: %d", cache.MinFreq)
 	}
 }
