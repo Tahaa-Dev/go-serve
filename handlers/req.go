@@ -213,5 +213,7 @@ func RequestHandler(
 		first = false
 	}
 
-	cachedEntry.IsLoaded = true
+	if opts.Cache.Cap != 0 {
+		cachedEntry.IsLoaded = true
+	}
 }

@@ -35,6 +35,7 @@ func TestNewCache(t *testing.T) {
 				cap(c3.LFUBuckets[i]),
 				len(c3.LFUBuckets[i]),
 			)
+		default:
 		}
 	}
 }
