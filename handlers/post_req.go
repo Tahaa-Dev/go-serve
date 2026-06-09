@@ -29,8 +29,7 @@ func PostRequestHandler(
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
 			errStr := fmt.Sprintf(
-				"requested file '%s' already exists. use PUT %s instead to overwrite its contents",
-				safePath,
+				"requested file '%s' already exists",
 				safePath,
 			)
 
