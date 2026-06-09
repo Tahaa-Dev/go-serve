@@ -102,7 +102,23 @@ func main() {
 				},
 				&state,
 			)
-		}), logChan, logThreshold, &state, "Test").ServeHTTP(w, req)
+		}), logChan, logThreshold, &state, "").ServeHTTP(w, req)
+	})
+
+	serverMux.HandleFunc("POST /", func(w http.ResponseWriter, req *http.Request) {
+		state := utils.NewLogState(true)
+
+		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handlers.PostRequestHandler(
+				w,
+				r,
+				&state,
+				utils.ReqHandlerOpts{
+					Dir:   dir,
+					Cache: &cache,
+				},
+			)
+		}), logChan, logThreshold, &state, "POST / Route").ServeHTTP(w, req)
 	})
 
 	serverMux.HandleFunc("GET /test", func(w http.ResponseWriter, req *http.Request) {
@@ -114,7 +130,7 @@ func main() {
 				r,
 				&state,
 			)
-		}), logChan, logThreshold, &state, "").ServeHTTP(w, req)
+		}), logChan, logThreshold, &state, "GET /test Route").ServeHTTP(w, req)
 	})
 
 	go startPprof(logChan, logThreshold)
