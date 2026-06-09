@@ -1,10 +1,10 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -39,7 +39,7 @@ func RequestHandler(
 			contentType := ""
 
 			if cachedFile.ContentType == "NOT ADDED" {
-				contentType = mime.TypeByExtension(filepath.Ext(safePath))
+				contentType = utils.TypeByExtension(filepath.Ext(safePath))
 				if contentType == "" {
 					contentType = "application/octet-stream"
 				}
@@ -80,7 +80,7 @@ func RequestHandler(
 		}
 	}
 
-	contentType := mime.TypeByExtension(filepath.Ext(safePath))
+	contentType := utils.TypeByExtension(filepath.Ext(safePath))
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
@@ -183,7 +183,7 @@ func RequestHandler(
 			break
 		}
 
-		if err != nil && err != io.EOF {
+		if err != nil && !errors.Is(err, io.EOF) {
 			state.Status = http.StatusInternalServerError
 			state.Error = err
 			http.Error(w, state.Error.Error(), state.Status)

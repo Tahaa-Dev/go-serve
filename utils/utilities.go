@@ -18,7 +18,7 @@ func init() {
 	if AuthVar, isSet = os.LookupEnv("GO_SERVE_AUTH"); !isSet {
 		fmt.Fprintln(
 			os.Stderr,
-			"Env Var 'GO_SERVE_AUTH' not found.\n • Set Var to a secure auth token for GET /test route and pprof diagnsotics authorization",
+			"Env Var 'GO_SERVE_AUTH' not found.\n • Set Var to a secure auth token for GET /test route, POST / route, and pprof diagnsotics authorization",
 		)
 		os.Exit(1)
 	}
