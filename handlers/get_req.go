@@ -98,7 +98,12 @@ func RequestHandler(
 	defer func() {
 		err := openFile.Close()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Failed to close file:", fullPath)
+			fmt.Fprintf(
+				os.Stderr,
+				"Error while closing file: %s\n • Error Message: %s",
+				fullPath,
+				err.Error(),
+			)
 		}
 	}()
 

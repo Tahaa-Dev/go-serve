@@ -25,17 +25,6 @@ func PostRequestHandler(
 		os.O_WRONLY|os.O_CREATE|os.O_EXCL,
 		0600,
 	)
-	defer func() {
-		err := file.Close()
-		if err != nil {
-			fmt.Fprintf(
-				os.Stderr,
-				"Error while closing file: %s\n • Error Message: %s",
-				fullPath,
-				err.Error(),
-			)
-		}
-	}()
 
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
@@ -59,6 +48,18 @@ func PostRequestHandler(
 
 		return
 	}
+
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			fmt.Fprintf(
+				os.Stderr,
+				"Error while closing file: %s\n • Error Message: %s",
+				fullPath,
+				err.Error(),
+			)
+		}
+	}()
 
 	message := []byte("file created successfully")
 	state.Status = http.StatusCreated
@@ -114,6 +115,10 @@ func PostRequestHandler(
 	}
 
 	if opts.Cache.Cap > 0 {
+		cachedEntry.ContentType = utils.TypeByExtension(filepath.Ext(safePath))
+		if cachedEntry.ContentType == "" {
+			cachedEntry.ContentType = "application/octet-stream"
+		}
 		cachedEntry.IsLoaded = true
 	}
 }
