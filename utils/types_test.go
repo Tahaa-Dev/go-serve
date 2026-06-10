@@ -125,3 +125,28 @@ func TestCacheAddEvict(t *testing.T) {
 		t.Errorf("Unexpected entry.Data:\n%s", data)
 	}
 }
+
+func TestCacheUpdateExists(t *testing.T) {
+	cache := utils.NewCache(4)
+	filename := "page.html"
+	entry := cache.Get(&filename)
+
+	data := []byte("<!DOCTYPE html>\n<html>\n<body>\n<h1>test</h1>\n</body>\n</html>")
+	cache.Update(&filename, data, entry)
+
+	if !bytes.Equal(data, entry.Data) {
+		t.Errorf("Unexpected data: %s", entry.Data)
+	}
+	if entry.Freq != 0 {
+		t.Errorf("Unexpected entry.Freq: %d", entry.Freq)
+	}
+	if cache.Size != 1 {
+		t.Errorf("Unexpected cache.Size: %d", cache.Size)
+	}
+	if cache.MinFreq != 0 {
+		t.Errorf("Unexpected cache.MinFreq: %d", cache.MinFreq)
+	}
+	if !bytes.Equal(cache.LFUBuckets[0], []byte(filename)) {
+		t.Errorf("Unexpected cache.LFUBuckets[0]: %s", cache.LFUBuckets[0])
+	}
+}

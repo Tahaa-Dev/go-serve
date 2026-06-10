@@ -119,9 +119,6 @@ func (c *Cache) Add(file *string, data []byte, entry *CacheEntry) {
 }
 
 func (c *Cache) Update(file *string, data []byte, entry *CacheEntry) {
-	c.Mu.Lock()
-	defer c.Mu.Unlock()
-
 	if entry.Data == nil {
 		c.Add(file, data, entry)
 	} else {
