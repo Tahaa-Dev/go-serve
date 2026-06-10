@@ -118,6 +118,17 @@ func (c *Cache) Add(file *string, data []byte, entry *CacheEntry) {
 	entry.Data = append(entry.Data, data...)
 }
 
+func (c *Cache) Update(file *string, data []byte, entry *CacheEntry) {
+	c.Mu.Lock()
+	defer c.Mu.Unlock()
+
+	if entry.Data == nil {
+		c.Add(file, data, entry)
+	} else {
+		entry.Data = data
+	}
+}
+
 func (c *Cache) evict() {
 	endIdx := bytes.IndexByte(c.LFUBuckets[c.MinFreq], 0)
 	startIdx := endIdx
