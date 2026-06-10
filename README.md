@@ -9,7 +9,7 @@ A simple and efficient concurrent static file server written in Go.
 - Customizable server port.
 - Configurable file cache capacity to improve performance.
 - Configurable logging levels (Error, Warn, Info).
-- Built-in diagnostic server (pprof) accessible on port 8081.
+- Built-in diagnostics server (pprof) accessible on port 8081.
 
 ## Installation
 
@@ -30,7 +30,7 @@ A simple and efficient concurrent static file server written in Go.
 You can run the server using the generated binary:
 
 ```bash
-./go-serve [options]
+go-serve [options]
 ```
 
 ### Options
@@ -42,7 +42,7 @@ You can run the server using the generated binary:
 
 Example:
 ```bash
-./go-serve -p 3000 -d ./web -c 128 -l Info
+go-serve -p 3000 -d ./web -c 128 -l Info
 ```
 
 The server will start and output its address to standard error.
