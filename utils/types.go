@@ -113,18 +113,23 @@ func (c *Cache) Add(file *string, data []byte, entry *CacheEntry) {
 	entry.Data = append(entry.Data, data...)
 }
 
-func (c *Cache) Delete(file *string, idx int) {
+func (c *Cache) Delete(file *string) {
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
 
-	c.deleteLocked(file, idx)
+	entry, exists := c.Files[*file]
+	if exists {
+		c.deleteLocked(file, entry.Freq)
 
-	if idx == c.MinFreq && len(c.LFUBuckets[c.MinFreq]) == 0 {
-		c.findNextBucket()
+		if entry.Freq == c.MinFreq && len(c.LFUBuckets[c.MinFreq]) == 0 {
+			c.findNextBucket()
+		}
+
+		entry.Mu.Lock()
+		delete(c.Files, *file)
+		entry.Mu.Unlock()
+		c.Size--
 	}
-
-	delete(c.Files, *file)
-	c.Size--
 }
 
 func (c *Cache) deleteLocked(file *string, idx int) {

@@ -50,10 +50,10 @@ func PostRequestHandler(
 
 	message := []byte("file created successfully")
 	state.Status = http.StatusCreated
-	w.WriteHeader(state.Status)
 	w.Header().Set("Location", safePath)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(message)))
+	w.WriteHeader(state.Status)
 
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)

@@ -48,9 +48,9 @@ func PutRequestHandler(
 
 	message := []byte("file updated successfully")
 	state.Status = http.StatusOK
-	w.WriteHeader(state.Status)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(message)))
+	w.WriteHeader(state.Status)
 
 	buf := bufPool.Get().(*[]byte)
 	defer bufPool.Put(buf)
