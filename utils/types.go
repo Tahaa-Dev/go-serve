@@ -55,11 +55,6 @@ func (c *Cache) Get(file *string) *CacheEntry {
 
 	entry, exists := c.Files[*file]
 	if !exists {
-		if c.Size == c.Cap {
-			c.evict()
-		}
-		c.Size++
-
 		c.Files[*file] = &CacheEntry{
 			sync.RWMutex{},
 			false,
@@ -103,23 +98,24 @@ func (c *Cache) Add(file *string, data []byte, entry *CacheEntry) {
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
 
-	if c.Size == c.Cap {
-		c.evict()
-	}
-
 	if entry.Data == nil {
+		if c.Size == c.Cap {
+			c.evict()
+		}
+
 		if len(c.LFUBuckets[c.MinFreq]) > 0 {
 			c.LFUBuckets[c.MinFreq] = append(c.LFUBuckets[c.MinFreq], 0)
 		}
 
 		c.LFUBuckets[c.MinFreq] = append(c.LFUBuckets[c.MinFreq], []byte(*file)...)
+		c.Size++
 	}
 
 	entry.Data = append(entry.Data, data...)
 }
 
-func (c *Cache) Update(file *string, data []byte, entry *CacheEntry) {
-	if entry.Data == nil {
+func (c *Cache) Update(file *string, data []byte, entry *CacheEntry, truncate bool) {
+	if entry.Data == nil || !truncate {
 		c.Add(file, data, entry)
 	} else {
 		entry.Data = data

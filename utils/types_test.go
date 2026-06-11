@@ -132,7 +132,7 @@ func TestCacheUpdateExists(t *testing.T) {
 	entry := cache.Get(&filename)
 
 	data := []byte("<!DOCTYPE html>\n<html>\n<body>\n<h1>test</h1>\n</body>\n</html>")
-	cache.Update(&filename, data, entry)
+	cache.Update(&filename, data, entry, true)
 
 	if !bytes.Equal(data, entry.Data) {
 		t.Errorf("Unexpected data: %s", entry.Data)
@@ -158,7 +158,7 @@ func TestCacheUpdateNotExists(t *testing.T) {
 	cache.Add(&filename, []byte("wrong data"), entry)
 
 	data := []byte("<!DOCTYPE html>\n<html>\n<body>\n<h1>test</h1>\n</body>\n</html>")
-	cache.Update(&filename, data, entry)
+	cache.Update(&filename, data, entry, true)
 
 	if !bytes.Equal(data, entry.Data) {
 		t.Errorf("Unexpected data: %s", entry.Data)

@@ -86,11 +86,14 @@ func RequestHandler(
 	}
 
 	fullPath := filepath.Join(opts.Dir, safePath)
-	// #nosec G304 -- path is sanitized before cache check
 	openFile, err := os.OpenFile(fullPath, os.O_RDONLY, 0400)
 	if err != nil {
-		state.Status = http.StatusNotFound
 		state.Error = err
+		if errors.Is(state.Error, os.ErrNotExist) {
+			state.Status = http.StatusNotFound
+		} else {
+			state.Status = http.StatusInternalServerError
+		}
 		http.Error(w, state.Error.Error(), state.Status)
 		return
 	}

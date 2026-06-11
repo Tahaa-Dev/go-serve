@@ -19,7 +19,6 @@ func PostRequestHandler(
 ) {
 	safePath := filepath.Clean(req.URL.Path)
 	fullPath := filepath.Join(opts.Dir, safePath)
-	// #nosec G304 -- path is sanitized before opening
 	file, err := os.OpenFile(
 		fullPath,
 		os.O_WRONLY|os.O_CREATE|os.O_EXCL,
@@ -27,24 +26,13 @@ func PostRequestHandler(
 	)
 
 	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			errStr := fmt.Sprintf(
-				"requested file '%s' already exists",
-				safePath,
-			)
-
-			state.Status = http.StatusConflict
-			state.Error = errors.New(errStr)
-
-			http.Error(w, errStr, state.Status)
-
-			return
-		}
-
-		state.Status = http.StatusInternalServerError
 		state.Error = err
+		if errors.Is(state.Error, os.ErrExist) {
+			state.Status = http.StatusConflict
+		} else {
+			state.Status = http.StatusInternalServerError
+		}
 		http.Error(w, state.Error.Error(), state.Status)
-
 		return
 	}
 
@@ -62,7 +50,7 @@ func PostRequestHandler(
 
 	message := []byte("file created successfully")
 	state.Status = http.StatusCreated
-	w.WriteHeader(http.StatusCreated)
+	w.WriteHeader(state.Status)
 	w.Header().Set("Location", safePath)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(message)))

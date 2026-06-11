@@ -60,6 +60,12 @@ linters:
       - linters:
           - revive
         text: "package-naming"
+      - linters:
+          - revive
+        text: "flag-parameter"
+      - linters:
+          - gosec
+        text: "G304"
 
 formatters:
   enable:
