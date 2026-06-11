@@ -171,14 +171,14 @@ func (c *Cache) findNextBucket() {
 	for i, bucket := range c.LFUBuckets[newMin:] {
 		if len(bucket) > 0 {
 			c.MinFreq = i
-			break
+			return
 		}
 	}
 
 	for i, bucket := range c.LFUBuckets[:newMin] {
 		if len(bucket) > 0 {
 			c.MinFreq = i
-			break
+			return
 		}
 	}
 }

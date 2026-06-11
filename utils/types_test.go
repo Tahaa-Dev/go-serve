@@ -176,3 +176,23 @@ func TestCacheUpdateNotExists(t *testing.T) {
 		t.Errorf("Unexpected cache.LFUBuckets[0]: %s", cache.LFUBuckets[0])
 	}
 }
+
+func TestCacheDelete(t *testing.T) {
+	cache := utils.NewCache(4)
+	filename1 := "page1.html"
+	filename2 := "page2.html"
+	cache.Add(&filename1, []byte("1"), cache.Get(&filename1))
+	cache.Add(&filename2, []byte("2"), cache.Get(&filename2))
+
+	cache.Delete(&filename1)
+
+	if cache.Get(&filename1).Data != nil {
+		t.Error("1st entry was not deleted")
+	}
+	if cache.MinFreq != 0 {
+		t.Errorf("Unexpected cache.MinFreq: %d", cache.MinFreq)
+	}
+	if !bytes.Equal(cache.LFUBuckets[0], []byte(filename2)) {
+		t.Errorf("Unexpected cache.LFUBuckets[0]: %s", cache.LFUBuckets[0])
+	}
+}
