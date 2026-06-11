@@ -113,6 +113,20 @@ func (c *Cache) Add(file *string, data []byte, entry *CacheEntry) {
 	entry.Data = append(entry.Data, data...)
 }
 
+func (c *Cache) Delete(file *string, idx int) {
+	c.Mu.Lock()
+	defer c.Mu.Unlock()
+
+	c.deleteLocked(file, idx)
+
+	if idx == c.MinFreq && len(c.LFUBuckets[c.MinFreq]) == 0 {
+		c.findNextBucket()
+	}
+
+	delete(c.Files, *file)
+	c.Size--
+}
+
 func (c *Cache) deleteLocked(file *string, idx int) {
 	fileBytes := []byte(*file)
 	startIdx := bytes.Index(c.LFUBuckets[idx], fileBytes)
@@ -143,11 +157,23 @@ func (c *Cache) evict() {
 
 	// if MinFreq is empty, find the next active bucket and set MinFreq to its idx
 	if len(c.LFUBuckets[c.MinFreq]) == 0 {
-		for i, bucket := range c.LFUBuckets[(c.MinFreq+1)%64:] {
-			if len(bucket) > 0 {
-				c.MinFreq = i
-				break
-			}
+		c.findNextBucket()
+	}
+}
+
+func (c *Cache) findNextBucket() {
+	newMin := (c.MinFreq + 1) % 64
+	for i, bucket := range c.LFUBuckets[newMin:] {
+		if len(bucket) > 0 {
+			c.MinFreq = i
+			break
+		}
+	}
+
+	for i, bucket := range c.LFUBuckets[:newMin] {
+		if len(bucket) > 0 {
+			c.MinFreq = i
+			break
 		}
 	}
 }
