@@ -5,11 +5,14 @@ A simple and efficient concurrent static file server written in Go.
 ## Features
 
 - High speed and great for concurrent request handling.
-- Serves static files from a specified directory.
-- Customizable server port.
 - Configurable file cache capacity to improve performance.
 - Configurable logging levels (Error, Warn, Info).
 - Built-in diagnostics server (pprof) accessible on port 8081.
+- Serves Multiple routes for different purposes:
+    - `GET /`: For serving static files. Does not require Authorization headers.
+    - `POST /`: For creating new files with the payload in request body and adding them to cache. Requires Authorization headers.
+    - `PUT /`: For updating existing files with the payload in request body and adding/updating them to cache. Requires Authorization headers.
+    - `GET /test`: For testing speed accurately without disk I/O overhead. Requires Authorization headers.
 
 ## Installation
 
