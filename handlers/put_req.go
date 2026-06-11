@@ -21,10 +21,6 @@ func PutRequestHandler(
 	fullPath := filepath.Join(opts.Dir, safePath)
 	var cachedEntry *utils.CacheEntry
 
-	if opts.Cache.Cap > 0 {
-		cachedEntry = opts.Cache.Get(&safePath)
-	}
-
 	file, err := os.OpenFile(fullPath, os.O_WRONLY|os.O_TRUNC, 0600)
 
 	if err != nil {
