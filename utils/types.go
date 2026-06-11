@@ -27,13 +27,15 @@ type Cache struct {
 func NewCache(cacheCap uint) Cache {
 	buckets := make([][]byte, 64)
 
-	alloc := cacheCap / 3
-	if alloc == 0 && cacheCap != 0 {
-		alloc = 1
+	alloc := uint(0)
+	if cacheCap <= 64 {
+		alloc = cacheCap * 8
+	} else {
+		alloc = cacheCap * 4
 	}
 
 	for i := range 64 {
-		// pre-allocate a third of the max capacityb per-bucket to avoid reallocations without over allocating
+		// pre-allocate 8 times the cache capacity per LFUBucket
 		buckets[i] = make([]byte, 0, alloc)
 	}
 
@@ -51,8 +53,6 @@ func (c *Cache) Get(file *string) *CacheEntry {
 	c.Mu.Lock()
 	defer c.Mu.Unlock()
 
-	fileBytes := []byte(*file)
-
 	entry, exists := c.Files[*file]
 	if !exists {
 		c.Files[*file] = &CacheEntry{
@@ -69,21 +69,12 @@ func (c *Cache) Get(file *string) *CacheEntry {
 	oldIdx := entry.Freq
 	newIdx := (oldIdx + 1) % 64
 
-	startIdx := bytes.Index(c.LFUBuckets[oldIdx], fileBytes)
-	endIdx := startIdx + len(fileBytes)
-
-	if endIdx > len(c.LFUBuckets[oldIdx]) {
-		endIdx--
-	}
-
-	c.LFUBuckets[oldIdx] = append(
-		c.LFUBuckets[oldIdx][:startIdx],
-		c.LFUBuckets[oldIdx][endIdx:]...)
+	c.deleteLocked(file, oldIdx)
 
 	if len(c.LFUBuckets[newIdx]) > 0 {
 		c.LFUBuckets[newIdx] = append(c.LFUBuckets[newIdx], 0)
 	}
-	c.LFUBuckets[newIdx] = append(c.LFUBuckets[newIdx], fileBytes...)
+	c.LFUBuckets[newIdx] = append(c.LFUBuckets[newIdx], []byte(*file)...)
 
 	if oldIdx == c.MinFreq && len(c.LFUBuckets[c.MinFreq]) == 0 {
 		c.MinFreq = newIdx
@@ -92,6 +83,14 @@ func (c *Cache) Get(file *string) *CacheEntry {
 	c.Files[*file].Freq = newIdx
 
 	return c.Files[*file]
+}
+
+func (c *Cache) Update(file *string, data []byte, entry *CacheEntry, truncate bool) {
+	if entry.Data == nil || !truncate {
+		c.Add(file, data, entry)
+	} else {
+		entry.Data = data
+	}
 }
 
 func (c *Cache) Add(file *string, data []byte, entry *CacheEntry) {
@@ -114,12 +113,18 @@ func (c *Cache) Add(file *string, data []byte, entry *CacheEntry) {
 	entry.Data = append(entry.Data, data...)
 }
 
-func (c *Cache) Update(file *string, data []byte, entry *CacheEntry, truncate bool) {
-	if entry.Data == nil || !truncate {
-		c.Add(file, data, entry)
-	} else {
-		entry.Data = data
+func (c *Cache) deleteLocked(file *string, idx int) {
+	fileBytes := []byte(*file)
+	startIdx := bytes.Index(c.LFUBuckets[idx], fileBytes)
+	endIdx := startIdx + len(fileBytes)
+
+	if endIdx+1 > len(c.LFUBuckets[idx]) {
+		endIdx--
 	}
+
+	c.LFUBuckets[idx] = append(
+		c.LFUBuckets[idx][:startIdx],
+		c.LFUBuckets[idx][endIdx+1:]...)
 }
 
 func (c *Cache) evict() {

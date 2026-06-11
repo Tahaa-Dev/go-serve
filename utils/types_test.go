@@ -21,16 +21,16 @@ func TestNewCache(t *testing.T) {
 				cap(c1.LFUBuckets[i]),
 				len(c1.LFUBuckets[i]),
 			)
-		case len(c2.LFUBuckets[i]) != 0 || cap(c2.LFUBuckets[i]) != 1:
+		case len(c2.LFUBuckets[i]) != 0 || cap(c2.LFUBuckets[i]) != 8:
 			t.Errorf(
-				"Expected bucket %d c2 capacity to be 1 and length to be 0, found:\n Capacity: %d\n Length: %d",
+				"Expected bucket %d c2 capacity to be 8 and length to be 0, found:\n Capacity: %d\n Length: %d",
 				i,
 				cap(c2.LFUBuckets[i]),
 				len(c2.LFUBuckets[i]),
 			)
-		case len(c3.LFUBuckets[i]) != 0 || cap(c3.LFUBuckets[i]) != 85:
+		case len(c3.LFUBuckets[i]) != 0 || cap(c3.LFUBuckets[i]) != 256*4:
 			t.Errorf(
-				"Expected bucket %d c3 capacity to be 85 and length to be 0, found:\n Capacity: %d\n Length: %d",
+				"Expected bucket %d c3 capacity to be 1024 and length to be 0, found:\n Capacity: %d\n Length: %d",
 				i,
 				cap(c3.LFUBuckets[i]),
 				len(c3.LFUBuckets[i]),
