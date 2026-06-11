@@ -121,6 +121,22 @@ func main() {
 		}), logChan, logThreshold, &state, "POST / Route").ServeHTTP(w, req)
 	})
 
+	serverMux.HandleFunc("PUT /", func(w http.ResponseWriter, req *http.Request) {
+		state := utils.NewLogState(true)
+
+		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handlers.PutRequestHandler(
+				w,
+				r,
+				&state,
+				utils.ReqHandlerOpts{
+					Dir:   dir,
+					Cache: &cache,
+				},
+			)
+		}), logChan, logThreshold, &state, "PUT / Route").ServeHTTP(w, req)
+	})
+
 	serverMux.HandleFunc("GET /test", func(w http.ResponseWriter, req *http.Request) {
 		state := utils.NewLogState(true)
 
