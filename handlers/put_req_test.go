@@ -82,3 +82,28 @@ func TestPutRequestHandlerErrorless(t *testing.T) {
 		t.Errorf("Unexpected file.Data:\n%s", newData[:n])
 	}
 }
+
+func TestPutRequestHandlerError(t *testing.T) {
+	dir := t.TempDir()
+
+	data := []byte("<!DOCTYPE html>\n<html>\n<body>\n<h1>Test</h1>\n</body>\n</html>")
+	buf := bytes.NewBuffer(data)
+
+	w := testResponseWriter{make([]byte, 0, 1024), http.StatusOK, make(http.Header)}
+	req, err := http.NewRequest("POST", "http://localhost:8000/page.html", buf)
+	if err != nil {
+		t.Error(err.Error())
+		return
+	}
+	state := utils.NewLogState(true)
+	cache := utils.NewCache(4)
+
+	handlers.PutRequestHandler(&w, req, &state, utils.ReqHandlerOpts{Dir: dir, Cache: &cache})
+
+	if state.Error == nil {
+		t.Error("Expected error")
+	}
+	if state.Status != http.StatusNotFound || w.status != http.StatusNotFound {
+		t.Error("Expected 404 Not Found status, found:", state.Status)
+	}
+}
