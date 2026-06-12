@@ -65,3 +65,25 @@ func TestDeleteRequestHandlerExists(t *testing.T) {
 		t.Errorf("Unexpected file open error: %s", err.Error())
 	}
 }
+
+func TestDeleteRequestHandlerNotExists(t *testing.T) {
+	dir := t.TempDir()
+
+	w := testResponseWriter{make([]byte, 0, 1024), http.StatusOK, make(http.Header)}
+	req, err := http.NewRequest("DELETE", "http://localhost:8000/page.html", nil)
+	if err != nil {
+		t.Error(err.Error())
+		return
+	}
+	state := utils.NewLogState(true)
+	cache := utils.NewCache(4)
+
+	handlers.PutRequestHandler(&w, req, &state, utils.ReqHandlerOpts{Dir: dir, Cache: &cache})
+
+	if state.Error == nil {
+		t.Error("Expected error")
+	}
+	if state.Status != http.StatusNotFound || w.status != http.StatusNotFound {
+		t.Error("Expected 404 Not Found status, found:", state.Status)
+	}
+}
