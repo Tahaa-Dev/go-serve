@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"github.com/Tahaa-Dev/go-serve/handlers"
-	"github.com/Tahaa-Dev/go-serve/utils"
 	"net/http"
+
+	"github.com/Tahaa-Dev/go-serve/handlers"
+	"github.com/Tahaa-Dev/go-serve/sys"
+	"github.com/Tahaa-Dev/go-serve/utils"
 
 	// #nosec G108 -- ppprof server is wrapped in auth middleware and is on local network on internal 8081 port
 	_ "net/http/pprof"
@@ -45,17 +47,32 @@ func main() {
 	port := ""
 	dir := ""
 	cacheCap := uint(0)
+	maxConcurrentReq := uint64(0)
 	logLevel := ""
-	flag.StringVar(&port, "p", "8000", "Serve on custom port (go-serve -p 3000)\n •")
-	flag.StringVar(&dir, "d", ".", "Directory to serve (go-serve -d ./website)\n •")
-	flag.UintVar(&cacheCap, "c", 64, "Specify the limit of cache entries (go-serve -c 128)\n •")
+	flag.StringVar(&port, "p", "8000", "Serve on custom port (go-serve -p 3000)\n•")
+	flag.StringVar(&dir, "d", ".", "Directory to serve (go-serve -d ./website)\n•")
+	flag.UintVar(&cacheCap, "c", 64, "Specify the limit of cache entries (go-serve -c 128)\n•")
+	flag.Uint64Var(
+		&maxConcurrentReq,
+		"m",
+		0,
+		"Sets system rlimit on Unix, 0 means system limit (go-serve -m 1024)\n•",
+	)
 	flag.StringVar(
 		&logLevel,
 		"l",
 		"Warn",
-		"Set global log level threshold.\nOverrides Logging header in requests if Logging header has a higher log level threshold (go-serve -l Info)\n • Options: Error/Info/Warn",
+		"Set global log level threshold.\nOverrides Logging header in requests if Logging header has a higher log level threshold (go-serve -l Info)\n• Options: Error/Info/Warn",
 	)
 	flag.Parse()
+
+	if err := sys.SetRLimit(maxConcurrentReq); err != nil {
+		fmt.Fprintln(
+			os.Stderr,
+			"Warning: Failed to set system rlimit\n Error Message:",
+			err.Error(),
+		)
+	}
 
 	logThreshold := 300
 	switch logLevel {
