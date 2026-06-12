@@ -1,0 +1,67 @@
+package handlers_test
+
+import (
+	"bytes"
+	"errors"
+	"net/http"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/Tahaa-Dev/go-serve/handlers"
+	"github.com/Tahaa-Dev/go-serve/utils"
+)
+
+func TestDeleteRequestHandlerExists(t *testing.T) {
+	dir := t.TempDir()
+	file, err := os.CreateTemp(dir, "page")
+	if err != nil {
+		t.Error(err.Error())
+		return
+	}
+
+	err = file.Close()
+	if err != nil {
+		t.Error(err.Error())
+		return
+	}
+
+	w := testResponseWriter{make([]byte, 0, 1024), http.StatusOK, make(http.Header)}
+	req, err := http.NewRequest("DELETE", "http://localhost:8000/"+filepath.Base(file.Name()), nil)
+	if err != nil {
+		t.Error(err.Error())
+		return
+	}
+
+	state := utils.NewLogState(true)
+	cache := utils.NewCache(4)
+	name := filepath.Clean(req.URL.Path)
+	cache.Add(&name, []byte{0}, cache.Get(&name))
+
+	handlers.DeleteRequestHandler(&w, req, &state, utils.ReqHandlerOpts{Dir: dir, Cache: &cache})
+
+	if state.Error != nil {
+		t.Errorf("Unexpected error:\n %s", state.Error.Error())
+	}
+	if state.Status != http.StatusOK || w.status != http.StatusOK {
+		t.Errorf("Unexpected HTTP status: %d", state.Status)
+	}
+
+	filename := filepath.Clean(req.URL.Path)
+	if cache.Get(&filename).Data != nil {
+		t.Error("Expected csche to not contain file:", filename)
+	}
+	if cache.MinFreq != 0 {
+		t.Errorf("Unexpected cache.MinFreq: %d", cache.MinFreq)
+	}
+	if !bytes.Equal(cache.LFUBuckets[0], []byte{}) {
+		t.Errorf("Unexpected cache.LFUBuckets[0]: %s", cache.LFUBuckets[0])
+	}
+	if cache.Size != 0 {
+		t.Errorf("Unexpected cache.Size: %d", cache.Size)
+	}
+
+	if _, err = os.Stat(file.Name()); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Unexpected file open error: %s", err.Error())
+	}
+}

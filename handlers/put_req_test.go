@@ -35,7 +35,7 @@ func TestPutRequestHandlerErrorless(t *testing.T) {
 	buf := bytes.NewBuffer(data)
 
 	w := testResponseWriter{make([]byte, 0, 1024), http.StatusOK, make(http.Header)}
-	req, err := http.NewRequest("POST", "http://localhost:8000/"+filepath.Base(file.Name()), buf)
+	req, err := http.NewRequest("PUT", "http://localhost:8000/"+filepath.Base(file.Name()), buf)
 	if err != nil {
 		t.Error(err.Error())
 		return
@@ -90,7 +90,7 @@ func TestPutRequestHandlerError(t *testing.T) {
 	buf := bytes.NewBuffer(data)
 
 	w := testResponseWriter{make([]byte, 0, 1024), http.StatusOK, make(http.Header)}
-	req, err := http.NewRequest("POST", "http://localhost:8000/page.html", buf)
+	req, err := http.NewRequest("PUT", "http://localhost:8000/page.html", buf)
 	if err != nil {
 		t.Error(err.Error())
 		return
