@@ -17,8 +17,9 @@ type paddedMask struct {
 }
 
 type Pool struct {
-	buf   *[bufN][bufSize]byte
-	masks [maskN]paddedMask
+	buf    *[bufN][bufSize]byte
+	masks  [maskN]paddedMask
+	ticker atomic.Uint32
 }
 
 func NewPool() *Pool {
@@ -26,15 +27,19 @@ func NewPool() *Pool {
 }
 
 func (p *Pool) Get() (int, *[bufSize]byte) {
-	const offset = iota
+	t := p.ticker.Add(1)
+
 	for i := range maskN {
-		mask := &p.masks[(offset+i)%maskN].mask
+		mask := &p.masks[(t+uint32(i))%maskN].mask
 		reg := mask.Load()
+
 		for reg != ^uint64(0) {
 			if bit := bits.TrailingZeros64(^reg); mask.CompareAndSwap(reg, reg|(uint64(1)<<bit)) {
 				idx := (i * 64) + bit
 				return idx, &p.buf[idx]
 			}
+
+			reg = mask.Load()
 		}
 	}
 

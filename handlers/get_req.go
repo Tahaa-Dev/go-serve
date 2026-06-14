@@ -187,6 +187,9 @@ func RequestHandler(
 			state.Status = http.StatusInternalServerError
 			state.Error = err
 			http.Error(w, state.Error.Error(), state.Status)
+			if opts.Cache.Cap > 0 {
+				opts.Cache.Delete(&safePath)
+			}
 			return
 		}
 
@@ -197,10 +200,6 @@ func RequestHandler(
 			}
 		}
 
-		if opts.Cache.Cap > 0 {
-			opts.Cache.Add(&safePath, buf[:bytesRead], cachedEntry)
-		}
-
 		bytesWritten, err := w.Write(buf[:bytesRead])
 
 		state.Size += bytesWritten
@@ -209,7 +208,14 @@ func RequestHandler(
 			state.Status = http.StatusBadGateway
 			state.Error = err
 			http.Error(w, state.Error.Error(), state.Status)
+			if opts.Cache.Cap > 0 {
+				opts.Cache.Delete(&safePath)
+			}
 			return
+		}
+
+		if opts.Cache.Cap > 0 {
+			opts.Cache.Add(&safePath, buf[:bytesRead], cachedEntry)
 		}
 
 		first = false
