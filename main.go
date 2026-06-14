@@ -19,7 +19,7 @@ import (
 func startPprof(logChan chan<- utils.LogMessage, logThreshold int) {
 	fmt.Fprintln(os.Stderr, "Started diagnostics server on http://localhost:8081/debug/pprof/")
 
-	state := utils.NewLogState(true)
+	state := utils.NewLogState()
 	server := &http.Server{
 		Addr: "localhost:8081",
 		Handler: utils.LogMiddleware(
@@ -107,86 +107,79 @@ func main() {
 	serverMux := http.NewServeMux()
 
 	serverMux.HandleFunc("GET /", func(w http.ResponseWriter, req *http.Request) {
-		state := utils.NewLogState(false)
-
-		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlers.RequestHandler(
-				w,
-				r,
-				utils.ReqHandlerOpts{
-					Dir:   dir,
-					Cache: &cache,
-				},
-				&state,
-			)
-		}), logChan, logThreshold, &state, "").ServeHTTP(w, req)
+		handlers.RequestHandler(
+			w,
+			req,
+			utils.ReqHandlerOpts{
+				Dir:   dir,
+				Cache: &cache,
+			},
+		)
 	})
 
 	serverMux.HandleFunc("POST /", func(w http.ResponseWriter, req *http.Request) {
-		state := utils.NewLogState(true)
-
-		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlers.PostRequestHandler(
-				w,
-				r,
-				&state,
-				utils.ReqHandlerOpts{
-					Dir:   dir,
-					Cache: &cache,
-				},
-			)
-		}), logChan, logThreshold, &state, "POST / Route").ServeHTTP(w, req)
+		handlers.PostRequestHandler(
+			w,
+			req,
+			utils.ReqHandlerOpts{
+				Dir:   dir,
+				Cache: &cache,
+			},
+		)
 	})
 
 	serverMux.HandleFunc("PUT /", func(w http.ResponseWriter, req *http.Request) {
-		state := utils.NewLogState(true)
-
-		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlers.PutRequestHandler(
-				w,
-				r,
-				&state,
-				utils.ReqHandlerOpts{
-					Dir:   dir,
-					Cache: &cache,
-				},
-			)
-		}), logChan, logThreshold, &state, "PUT / Route").ServeHTTP(w, req)
+		handlers.PutRequestHandler(
+			w,
+			req,
+			utils.ReqHandlerOpts{
+				Dir:   dir,
+				Cache: &cache,
+			},
+		)
 	})
 
 	serverMux.HandleFunc("DELETE /", func(w http.ResponseWriter, req *http.Request) {
-		state := utils.NewLogState(true)
-
-		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlers.PostRequestHandler(
-				w,
-				r,
-				&state,
-				utils.ReqHandlerOpts{
-					Dir:   dir,
-					Cache: &cache,
-				},
-			)
-		}), logChan, logThreshold, &state, "DELETE / Route").ServeHTTP(w, req)
+		handlers.DeleteRequestHandler(
+			w,
+			req,
+			utils.ReqHandlerOpts{
+				Dir:   dir,
+				Cache: &cache,
+			},
+		)
 	})
 
 	serverMux.HandleFunc("GET /test", func(w http.ResponseWriter, req *http.Request) {
-		state := utils.NewLogState(true)
-
-		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlers.TestHandler(
-				w,
-				r,
-				&state,
-			)
-		}), logChan, logThreshold, &state, "GET /test Route").ServeHTTP(w, req)
+		handlers.TestHandler(
+			w,
+			req,
+		)
 	})
 
 	go startPprof(logChan, logThreshold)
 
 	server := &http.Server{
-		Addr:              ":" + port,
-		Handler:           serverMux,
+		Addr: ":" + port,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			state := utils.NewLogState()
+
+			realm := "GET /test Route"
+			switch r.Method {
+			case "GET":
+				state.CheckAuth = false
+			case "POST":
+				realm = "POST / Route"
+			case "PUT":
+				realm = "PUT / Route"
+			case "DELETE":
+				realm = "DELETE / Route"
+			default:
+			}
+
+			utils.LogMiddleware(serverMux, logChan, logThreshold, &state, realm).
+				ServeHTTP(&utils.StateResW{State: &state, W: w}, r)
+		}),
 		ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout:       5 * time.Second, // a typical request body isn't very large
 		WriteTimeout:      15 * time.Second,

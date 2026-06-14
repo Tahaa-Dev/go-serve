@@ -23,10 +23,14 @@ func TestPostRequestHandlerErrorless(t *testing.T) {
 		t.Error(err.Error())
 		return
 	}
-	state := utils.NewLogState(true)
+	state := utils.NewLogState()
 	cache := utils.NewCache(4)
 
-	handlers.PostRequestHandler(&w, req, &state, utils.ReqHandlerOpts{Dir: dir, Cache: &cache})
+	handlers.PostRequestHandler(
+		&utils.StateResW{State: &state, W: &w},
+		req,
+		utils.ReqHandlerOpts{Dir: dir, Cache: &cache},
+	)
 
 	if state.Error != nil {
 		t.Errorf("Unexpected error:\n %s", state.Error.Error())
@@ -49,9 +53,6 @@ func TestPostRequestHandlerErrorless(t *testing.T) {
 	if cache.MinFreq != 1 {
 		t.Errorf("Unexpected cache.MinFreq: %d", cache.MinFreq)
 	}
-	if idx := bytes.Index(cache.LFUBuckets[1], []byte(name)); idx != 0 {
-		t.Errorf("Unexpected LFUBuckets[1] index: %d", idx)
-	}
 }
 
 func TestPostRequestHandlerError(t *testing.T) {
@@ -71,10 +72,14 @@ func TestPostRequestHandlerError(t *testing.T) {
 		t.Error(err.Error())
 		return
 	}
-	state := utils.NewLogState(true)
+	state := utils.NewLogState()
 	cache := utils.NewCache(4)
 
-	handlers.PostRequestHandler(&w, req, &state, utils.ReqHandlerOpts{Dir: dir, Cache: &cache})
+	handlers.PostRequestHandler(
+		&utils.StateResW{State: &state, W: &w},
+		req,
+		utils.ReqHandlerOpts{Dir: dir, Cache: &cache},
+	)
 
 	if state.Error == nil {
 		t.Error("Expected state.Error to not be nil")

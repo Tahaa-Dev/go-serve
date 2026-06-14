@@ -47,7 +47,8 @@ func TestRequestHandlerNoCache(t *testing.T) {
 	}
 
 	cache := utils.NewCache(0)
-	state := utils.NewLogState(false)
+	state := utils.NewLogState()
+	state.CheckAuth = false
 
 	req, err := http.NewRequest("GET", "http://127.0.0.1:8000/"+filepath.Base(file.Name()), nil)
 	if err != nil {
@@ -58,10 +59,9 @@ func TestRequestHandlerNoCache(t *testing.T) {
 	w := testResponseWriter{make([]byte, 0, 1024), http.StatusOK, make(http.Header)}
 
 	handlers.RequestHandler(
-		&w,
+		&utils.StateResW{State: &state, W: &w},
 		req,
 		utils.ReqHandlerOpts{Dir: dir, Cache: &cache},
-		&state,
 	)
 
 	if state.Size != len(data) {
@@ -101,7 +101,8 @@ func TestRequestHandlerNotCached(t *testing.T) {
 	}
 
 	cache := utils.NewCache(4)
-	state := utils.NewLogState(false)
+	state := utils.NewLogState()
+	state.CheckAuth = false
 	filename := filepath.Base(file.Name())
 
 	req, err := http.NewRequest("GET", "http://127.0.0.1:8000/"+filename, nil)
@@ -113,10 +114,9 @@ func TestRequestHandlerNotCached(t *testing.T) {
 	w := testResponseWriter{make([]byte, 0, 1024), http.StatusOK, make(http.Header)}
 
 	handlers.RequestHandler(
-		&w,
+		&utils.StateResW{State: &state, W: &w},
 		req,
 		utils.ReqHandlerOpts{Dir: dir, Cache: &cache},
-		&state,
 	)
 
 	if state.Size != len(data) {

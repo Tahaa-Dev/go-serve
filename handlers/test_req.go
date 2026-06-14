@@ -11,11 +11,11 @@ import (
 var testGarbage = make([]byte, 128*1024)
 
 func TestHandler(
-	w http.ResponseWriter,
+	rw http.ResponseWriter,
 	req *http.Request,
-	state *utils.LogState,
 ) {
 	size := 50
+	w := rw.(*utils.StateResW)
 
 	if mb := req.URL.Query().Get("mb"); mb != "" {
 		n, err := fmt.Sscanf(mb, "%d", &size)
@@ -29,9 +29,9 @@ func TestHandler(
 	err := rc.SetWriteDeadline(time.Time{})
 
 	if err != nil {
-		state.Status = http.StatusHTTPVersionNotSupported
-		state.Error = err
-		http.Error(w, state.Error.Error(), state.Status)
+		w.State.Status = http.StatusHTTPVersionNotSupported
+		w.State.Error = err
+		http.Error(w, w.State.Error.Error(), w.State.Status)
 		return
 	}
 
@@ -42,12 +42,12 @@ func TestHandler(
 		n, err := w.Write(testGarbage)
 
 		if err != nil {
-			state.Status = http.StatusBadGateway
-			state.Error = err
-			http.Error(w, state.Error.Error(), state.Status)
+			w.State.Status = http.StatusBadGateway
+			w.State.Error = err
+			http.Error(w, w.State.Error.Error(), w.State.Status)
 			break
 		}
 
-		state.Size += n
+		w.State.Size += n
 	}
 }

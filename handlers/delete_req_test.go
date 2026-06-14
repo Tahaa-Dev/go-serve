@@ -1,7 +1,6 @@
 package handlers_test
 
 import (
-	"bytes"
 	"errors"
 	"net/http"
 	"os"
@@ -33,12 +32,16 @@ func TestDeleteRequestHandlerExists(t *testing.T) {
 		return
 	}
 
-	state := utils.NewLogState(true)
+	state := utils.NewLogState()
 	cache := utils.NewCache(4)
 	name := filepath.Clean(req.URL.Path)
 	cache.Add(&name, []byte{0}, cache.Get(&name))
 
-	handlers.DeleteRequestHandler(&w, req, &state, utils.ReqHandlerOpts{Dir: dir, Cache: &cache})
+	handlers.DeleteRequestHandler(
+		&utils.StateResW{State: &state, W: &w},
+		req,
+		utils.ReqHandlerOpts{Dir: dir, Cache: &cache},
+	)
 
 	if state.Error != nil {
 		t.Errorf("Unexpected error:\n %s", state.Error.Error())
@@ -53,9 +56,6 @@ func TestDeleteRequestHandlerExists(t *testing.T) {
 	}
 	if cache.MinFreq != 0 {
 		t.Errorf("Unexpected cache.MinFreq: %d", cache.MinFreq)
-	}
-	if !bytes.Equal(cache.LFUBuckets[0], []byte{}) {
-		t.Errorf("Unexpected cache.LFUBuckets[0]: %s", cache.LFUBuckets[0])
 	}
 	if cache.Size != 0 {
 		t.Errorf("Unexpected cache.Size: %d", cache.Size)
@@ -75,10 +75,14 @@ func TestDeleteRequestHandlerNotExists(t *testing.T) {
 		t.Error(err.Error())
 		return
 	}
-	state := utils.NewLogState(true)
+	state := utils.NewLogState()
 	cache := utils.NewCache(4)
 
-	handlers.PutRequestHandler(&w, req, &state, utils.ReqHandlerOpts{Dir: dir, Cache: &cache})
+	handlers.DeleteRequestHandler(
+		&utils.StateResW{State: &state, W: &w},
+		req,
+		utils.ReqHandlerOpts{Dir: dir, Cache: &cache},
+	)
 
 	if state.Error == nil {
 		t.Error("Expected error")

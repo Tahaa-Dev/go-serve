@@ -12,25 +12,25 @@ import (
 )
 
 func PutRequestHandler(
-	w http.ResponseWriter,
+	rw http.ResponseWriter,
 	req *http.Request,
-	state *utils.LogState,
 	opts utils.ReqHandlerOpts,
 ) {
 	safePath := filepath.Clean(req.URL.Path)
 	fullPath := filepath.Join(opts.Dir, safePath)
 	var cachedEntry *utils.CacheEntry
+	w := rw.(*utils.StateResW)
 
 	file, err := os.OpenFile(fullPath, os.O_WRONLY|os.O_TRUNC, 0600)
 
 	if err != nil {
-		state.Error = err
-		if errors.Is(state.Error, os.ErrNotExist) {
-			state.Status = http.StatusNotFound
+		w.State.Error = err
+		if errors.Is(w.State.Error, os.ErrNotExist) {
+			w.State.Status = http.StatusNotFound
 		} else {
-			state.Status = http.StatusInternalServerError
+			w.State.Status = http.StatusInternalServerError
 		}
-		http.Error(w, state.Error.Error(), state.Status)
+		http.Error(w, w.State.Error.Error(), w.State.Status)
 		return
 	}
 
@@ -47,10 +47,10 @@ func PutRequestHandler(
 	}()
 
 	message := []byte("file updated successfully")
-	state.Status = http.StatusOK
+	w.State.Status = http.StatusOK
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(message)))
-	w.WriteHeader(state.Status)
+	w.WriteHeader(w.State.Status)
 
 	idx, buf := bufPool.Get()
 	defer bufPool.Put(idx)
@@ -70,17 +70,17 @@ func PutRequestHandler(
 		}
 
 		if err != nil && !errors.Is(err, io.EOF) {
-			state.Status = http.StatusInternalServerError
-			state.Error = err
-			http.Error(w, state.Error.Error(), state.Status)
+			w.State.Status = http.StatusInternalServerError
+			w.State.Error = err
+			http.Error(w, w.State.Error.Error(), w.State.Status)
 			return
 		}
 
 		_, err = file.Write(buf[:bytesRead])
 		if err != nil {
-			state.Status = http.StatusInternalServerError
-			state.Error = err
-			http.Error(w, state.Error.Error(), state.Status)
+			w.State.Status = http.StatusInternalServerError
+			w.State.Error = err
+			http.Error(w, w.State.Error.Error(), w.State.Status)
 			return
 		}
 
@@ -91,11 +91,11 @@ func PutRequestHandler(
 	}
 
 	n, err := w.Write(message)
-	state.Size = n
+	w.State.Size = n
 	if err != nil {
-		state.Status = http.StatusBadGateway
-		state.Error = err
-		http.Error(w, state.Error.Error(), state.Status)
+		w.State.Status = http.StatusBadGateway
+		w.State.Error = err
+		http.Error(w, w.State.Error.Error(), w.State.Status)
 		return
 	}
 

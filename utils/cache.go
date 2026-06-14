@@ -1,9 +1,11 @@
 package utils
 
 import (
-	"bytes"
 	"sync"
 )
+
+type tmp struct {
+}
 
 type CacheEntry struct {
 	Mu          sync.RWMutex
@@ -17,13 +19,13 @@ type Cache struct {
 	Mu         sync.Mutex
 	Files      map[string]*CacheEntry
 	MinFreq    int
-	LFUBuckets [64][]byte
+	LFUBuckets [64]map[string]tmp
 	Cap        uint
 	Size       uint
 }
 
 func NewCache(cacheCap uint) Cache {
-	buckets := [64][]byte{}
+	buckets := [64]map[string]tmp{}
 
 	alloc := uint(0)
 	if cacheCap <= 64 {
@@ -34,7 +36,7 @@ func NewCache(cacheCap uint) Cache {
 
 	for i := range 64 {
 		// pre-allocate 8 times the cache capacity per LFUBucket
-		buckets[i] = make([]byte, 0, alloc)
+		buckets[i] = make(map[string]tmp, alloc)
 	}
 
 	return Cache{
@@ -67,12 +69,8 @@ func (c *Cache) Get(file *string) *CacheEntry {
 	oldIdx := entry.Freq
 	newIdx := (oldIdx + 1) % 64
 
-	c.deleteLocked(file, oldIdx)
-
-	if len(c.LFUBuckets[newIdx]) > 0 {
-		c.LFUBuckets[newIdx] = append(c.LFUBuckets[newIdx], 0)
-	}
-	c.LFUBuckets[newIdx] = append(c.LFUBuckets[newIdx], []byte(*file)...)
+	delete(c.LFUBuckets[oldIdx], *file)
+	c.LFUBuckets[newIdx][*file] = tmp{}
 
 	if oldIdx == c.MinFreq && len(c.LFUBuckets[c.MinFreq]) == 0 {
 		c.MinFreq = newIdx
@@ -100,11 +98,7 @@ func (c *Cache) Add(file *string, data []byte, entry *CacheEntry) {
 			c.evict()
 		}
 
-		if len(c.LFUBuckets[c.MinFreq]) > 0 {
-			c.LFUBuckets[c.MinFreq] = append(c.LFUBuckets[c.MinFreq], 0)
-		}
-
-		c.LFUBuckets[c.MinFreq] = append(c.LFUBuckets[c.MinFreq], []byte(*file)...)
+		c.LFUBuckets[c.MinFreq][*file] = tmp{}
 		c.Size++
 	}
 
@@ -117,7 +111,7 @@ func (c *Cache) Delete(file *string) {
 
 	entry, exists := c.Files[*file]
 	if exists {
-		c.deleteLocked(file, entry.Freq)
+		delete(c.LFUBuckets[c.MinFreq], *file)
 
 		if entry.Freq == c.MinFreq && len(c.LFUBuckets[c.MinFreq]) == 0 {
 			c.findNextBucket()
@@ -130,31 +124,12 @@ func (c *Cache) Delete(file *string) {
 	}
 }
 
-func (c *Cache) deleteLocked(file *string, idx int) {
-	fileBytes := []byte(*file)
-	startIdx := bytes.Index(c.LFUBuckets[idx], fileBytes)
-	endIdx := startIdx + len(fileBytes)
-
-	if endIdx+1 > len(c.LFUBuckets[idx]) {
-		endIdx--
-	}
-
-	c.LFUBuckets[idx] = append(
-		c.LFUBuckets[idx][:startIdx],
-		c.LFUBuckets[idx][endIdx+1:]...)
-}
-
 func (c *Cache) evict() {
-	endIdx := bytes.IndexByte(c.LFUBuckets[c.MinFreq], 0)
-	startIdx := endIdx
-
-	if endIdx == -1 {
-		endIdx = len(c.LFUBuckets[c.MinFreq]) - 1
-		startIdx = endIdx + 1
+	for filename := range c.LFUBuckets[c.MinFreq] {
+		delete(c.LFUBuckets[c.MinFreq], filename)
+		delete(c.Files, filename)
+		break
 	}
-
-	delete(c.Files, string(c.LFUBuckets[c.MinFreq][:startIdx]))
-	c.LFUBuckets[c.MinFreq] = c.LFUBuckets[c.MinFreq][endIdx+1:]
 
 	c.Size--
 

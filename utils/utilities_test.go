@@ -89,7 +89,7 @@ func TestAuthForbidden(t *testing.T) {
 }
 
 func TestLogMiddlewareErrorless(t *testing.T) {
-	state := utils.NewLogState(true)
+	state := utils.NewLogState()
 	ch := make(chan utils.LogMessage, 1)
 	resp := testResponseWriter{make([]byte, 0), http.StatusOK, make(map[string][]string)}
 
@@ -121,7 +121,7 @@ func TestLogMiddlewareErrorless(t *testing.T) {
 }
 
 func TestLogMiddlewareAuthError(t *testing.T) {
-	state := utils.NewLogState(true)
+	state := utils.NewLogState()
 	ch := make(chan utils.LogMessage, 1)
 	resp := testResponseWriter{make([]byte, 0), http.StatusOK, make(map[string][]string)}
 
@@ -153,7 +153,8 @@ func TestLogMiddlewareAuthError(t *testing.T) {
 }
 
 func TestLogMiddlewareStateMutation(t *testing.T) {
-	state := utils.NewLogState(false)
+	state := utils.NewLogState()
+	state.CheckAuth = false
 	ch := make(chan utils.LogMessage, 1)
 	resp := testResponseWriter{make([]byte, 0), http.StatusOK, make(map[string][]string)}
 

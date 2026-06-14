@@ -28,12 +28,29 @@ type LogState struct {
 	CheckAuth bool
 }
 
-func NewLogState(chechAuth bool) LogState {
+func NewLogState() LogState {
 	return LogState{
 		StartTime: time.Now(),
 		Status:    http.StatusOK,
 		Size:      0,
 		Error:     nil,
-		CheckAuth: chechAuth,
+		CheckAuth: true,
 	}
+}
+
+type StateResW struct {
+	State *LogState
+	W     http.ResponseWriter
+}
+
+func (srw *StateResW) Header() http.Header {
+	return srw.W.Header()
+}
+
+func (srw *StateResW) Write(b []byte) (int, error) {
+	return srw.W.Write(b)
+}
+
+func (srw *StateResW) WriteHeader(statusCode int) {
+	srw.W.WriteHeader(statusCode)
 }

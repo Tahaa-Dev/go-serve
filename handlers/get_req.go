@@ -15,12 +15,12 @@ import (
 var bufPool = utils.NewPool()
 
 func RequestHandler(
-	w http.ResponseWriter,
+	rw http.ResponseWriter,
 	req *http.Request,
 	opts utils.ReqHandlerOpts,
-	state *utils.LogState,
 ) {
 	var cachedEntry *utils.CacheEntry
+	w := rw.(*utils.StateResW)
 
 	safePath := filepath.Clean(req.URL.Path)
 
@@ -44,12 +44,12 @@ func RequestHandler(
 			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(cachedFile.Data)))
 			// #nosec G705 -- intentional file server design
 			length, err := w.Write(cachedFile.Data)
-			state.Size = length
+			w.State.Size = length
 
 			if err != nil {
-				state.Status = http.StatusBadGateway
-				state.Error = err
-				http.Error(w, state.Error.Error(), state.Status)
+				w.State.Status = http.StatusBadGateway
+				w.State.Error = err
+				http.Error(w, w.State.Error.Error(), w.State.Status)
 			}
 		}
 
@@ -80,13 +80,13 @@ func RequestHandler(
 	fullPath := filepath.Join(opts.Dir, safePath)
 	openFile, err := os.OpenFile(fullPath, os.O_RDONLY, 0400)
 	if err != nil {
-		state.Error = err
-		if errors.Is(state.Error, os.ErrNotExist) {
-			state.Status = http.StatusNotFound
+		w.State.Error = err
+		if errors.Is(w.State.Error, os.ErrNotExist) {
+			w.State.Status = http.StatusNotFound
 		} else {
-			state.Status = http.StatusInternalServerError
+			w.State.Status = http.StatusInternalServerError
 		}
-		http.Error(w, state.Error.Error(), state.Status)
+		http.Error(w, w.State.Error.Error(), w.State.Status)
 		return
 	}
 
@@ -104,9 +104,9 @@ func RequestHandler(
 
 	fileInfo, err := openFile.Stat()
 	if err != nil {
-		state.Error = err
-		state.Status = http.StatusInternalServerError
-		http.Error(w, state.Error.Error(), state.Status)
+		w.State.Error = err
+		w.State.Status = http.StatusInternalServerError
+		http.Error(w, w.State.Error.Error(), w.State.Status)
 		return
 	}
 
@@ -131,9 +131,9 @@ func RequestHandler(
 		})
 
 		if err != nil {
-			state.Error = err
-			state.Status = http.StatusInternalServerError
-			http.Error(w, state.Error.Error(), state.Status)
+			w.State.Error = err
+			w.State.Status = http.StatusInternalServerError
+			http.Error(w, w.State.Error.Error(), w.State.Status)
 			return
 		}
 
@@ -155,12 +155,12 @@ func RequestHandler(
 		// #nosec G705 -- intentional file server design as directory listing is guaranteed to be valid HTML
 		bytesWritten, err := w.Write(dirListing)
 
-		state.Size += bytesWritten
+		w.State.Size += bytesWritten
 
 		if err != nil {
-			state.Status = http.StatusBadGateway
-			state.Error = err
-			http.Error(w, state.Error.Error(), state.Status)
+			w.State.Status = http.StatusBadGateway
+			w.State.Error = err
+			http.Error(w, w.State.Error.Error(), w.State.Status)
 			return
 		}
 
@@ -184,9 +184,9 @@ func RequestHandler(
 		}
 
 		if err != nil && !errors.Is(err, io.EOF) {
-			state.Status = http.StatusInternalServerError
-			state.Error = err
-			http.Error(w, state.Error.Error(), state.Status)
+			w.State.Status = http.StatusInternalServerError
+			w.State.Error = err
+			http.Error(w, w.State.Error.Error(), w.State.Status)
 			if opts.Cache.Cap > 0 {
 				opts.Cache.Delete(&safePath)
 			}
@@ -202,12 +202,12 @@ func RequestHandler(
 
 		bytesWritten, err := w.Write(buf[:bytesRead])
 
-		state.Size += bytesWritten
+		w.State.Size += bytesWritten
 
 		if err != nil {
-			state.Status = http.StatusBadGateway
-			state.Error = err
-			http.Error(w, state.Error.Error(), state.Status)
+			w.State.Status = http.StatusBadGateway
+			w.State.Error = err
+			http.Error(w, w.State.Error.Error(), w.State.Status)
 			if opts.Cache.Cap > 0 {
 				opts.Cache.Delete(&safePath)
 			}

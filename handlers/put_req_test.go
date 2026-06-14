@@ -41,12 +41,16 @@ func TestPutRequestHandlerErrorless(t *testing.T) {
 		return
 	}
 
-	state := utils.NewLogState(true)
+	state := utils.NewLogState()
 	cache := utils.NewCache(4)
 	name := filepath.Clean(req.URL.Path)
 	cache.Add(&name, oldData, cache.Get(&name))
 
-	handlers.PutRequestHandler(&w, req, &state, utils.ReqHandlerOpts{Dir: dir, Cache: &cache})
+	handlers.PutRequestHandler(
+		&utils.StateResW{State: &state, W: &w},
+		req,
+		utils.ReqHandlerOpts{Dir: dir, Cache: &cache},
+	)
 
 	if state.Error != nil {
 		t.Errorf("Unexpected error:\n %s", state.Error.Error())
@@ -68,8 +72,8 @@ func TestPutRequestHandlerErrorless(t *testing.T) {
 	if cache.MinFreq != 2 {
 		t.Errorf("Unexpected cache.MinFreq: %d", cache.MinFreq)
 	}
-	if !bytes.Equal(cache.LFUBuckets[2], []byte(name)) {
-		t.Error("Unexpected LFUBuckets[2]")
+	if _, exists := cache.LFUBuckets[entry.Freq][name]; !exists {
+		t.Error("Unexpected LFUBuckets")
 	}
 
 	newData := make([]byte, 1024)
@@ -95,10 +99,14 @@ func TestPutRequestHandlerError(t *testing.T) {
 		t.Error(err.Error())
 		return
 	}
-	state := utils.NewLogState(true)
+	state := utils.NewLogState()
 	cache := utils.NewCache(4)
 
-	handlers.PutRequestHandler(&w, req, &state, utils.ReqHandlerOpts{Dir: dir, Cache: &cache})
+	handlers.PutRequestHandler(
+		&utils.StateResW{State: &state, W: &w},
+		req,
+		utils.ReqHandlerOpts{Dir: dir, Cache: &cache},
+	)
 
 	if state.Error == nil {
 		t.Error("Expected error")

@@ -11,22 +11,22 @@ import (
 )
 
 func DeleteRequestHandler(
-	w http.ResponseWriter,
+	rw http.ResponseWriter,
 	req *http.Request,
-	state *utils.LogState,
 	opts utils.ReqHandlerOpts,
 ) {
+	w := rw.(*utils.StateResW)
 	safePath := filepath.Clean(req.URL.Path)
 	fullPath := filepath.Join(opts.Dir, safePath)
 
 	if err := os.Remove(fullPath); err != nil {
-		state.Error = err
-		if errors.Is(state.Error, os.ErrNotExist) {
-			state.Status = http.StatusNotFound
+		w.State.Error = err
+		if errors.Is(w.State.Error, os.ErrNotExist) {
+			w.State.Status = http.StatusNotFound
 		} else {
-			state.Status = http.StatusInternalServerError
+			w.State.Status = http.StatusInternalServerError
 		}
-		http.Error(w, state.Error.Error(), state.Status)
+		http.Error(w, w.State.Error.Error(), w.State.Status)
 		return
 	}
 
@@ -35,16 +35,16 @@ func DeleteRequestHandler(
 	}
 
 	message := []byte("file deleted successfully")
-	state.Status = http.StatusOK
+	w.State.Status = http.StatusOK
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(message)))
 
 	n, err := w.Write(message)
-	state.Size = n
+	w.State.Size = n
 	if err != nil {
-		state.Status = http.StatusBadGateway
-		state.Error = err
-		http.Error(w, state.Error.Error(), state.Status)
+		w.State.Status = http.StatusBadGateway
+		w.State.Error = err
+		http.Error(w, w.State.Error.Error(), w.State.Status)
 		return
 	}
 }
