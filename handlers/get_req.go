@@ -8,17 +8,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/Tahaa-Dev/go-serve/utils"
 )
 
-var bufPool = sync.Pool{
-	New: func() any {
-		buf := make([]byte, 128*1024)
-		return &buf
-	},
-}
+var bufPool = utils.NewPool()
 
 func RequestHandler(
 	w http.ResponseWriter,
@@ -29,8 +23,6 @@ func RequestHandler(
 	var cachedEntry *utils.CacheEntry
 
 	safePath := filepath.Clean(req.URL.Path)
-
-	w.Header().Set("X-Content-Type-Options", "nosniff")
 
 	if opts.Cache.Cap > 0 {
 		cachedFile := opts.Cache.Get(&safePath)
@@ -181,11 +173,11 @@ func RequestHandler(
 		return
 	}
 
-	buf := bufPool.Get().(*[]byte)
-	defer bufPool.Put(buf)
+	idx, buf := bufPool.Get()
+	defer bufPool.Put(idx)
 	first := true
 	for {
-		bytesRead, err := openFile.Read((*buf))
+		bytesRead, err := openFile.Read(buf[:])
 
 		if bytesRead == 0 {
 			break
@@ -205,7 +197,11 @@ func RequestHandler(
 			}
 		}
 
-		bytesWritten, err := w.Write((*buf)[:bytesRead])
+		if opts.Cache.Cap > 0 {
+			opts.Cache.Add(&safePath, buf[:bytesRead], cachedEntry)
+		}
+
+		bytesWritten, err := w.Write(buf[:bytesRead])
 
 		state.Size += bytesWritten
 
@@ -214,10 +210,6 @@ func RequestHandler(
 			state.Error = err
 			http.Error(w, state.Error.Error(), state.Status)
 			return
-		}
-
-		if opts.Cache.Cap > 0 {
-			opts.Cache.Add(&safePath, (*buf)[:bytesRead], cachedEntry)
 		}
 
 		first = false

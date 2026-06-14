@@ -84,9 +84,6 @@ func TestRequestHandlerNoCache(t *testing.T) {
 	if w.Header().Get("Content-Length") != fmt.Sprintf("%d", len(data)) {
 		t.Errorf("Unexpected Content-Length header: %s", w.Header().Get("Content-Length"))
 	}
-	if w.Header().Get("X-Content-Type-Options") != "nosniff" {
-		t.Errorf("Unexpected Content-Type header: %s", w.Header().Get("X-Content-Type-Options"))
-	}
 }
 
 func TestRequestHandlerNotCached(t *testing.T) {
@@ -141,9 +138,6 @@ func TestRequestHandlerNotCached(t *testing.T) {
 	}
 	if w.Header().Get("Content-Length") != fmt.Sprintf("%d", len(data)) {
 		t.Errorf("Unexpected Content-Length header: %s", w.Header().Get("Content-Length"))
-	}
-	if w.Header().Get("X-Content-Type-Options") != "nosniff" {
-		t.Errorf("Unexpected Content-Type header: %s", w.Header().Get("X-Content-Type-Options"))
 	}
 
 	name := filepath.Clean(req.URL.Path)

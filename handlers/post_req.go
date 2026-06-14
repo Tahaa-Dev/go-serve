@@ -55,8 +55,8 @@ func PostRequestHandler(
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(message)))
 	w.WriteHeader(state.Status)
 
-	buf := bufPool.Get().(*[]byte)
-	defer bufPool.Put(buf)
+	idx, buf := bufPool.Get()
+	defer bufPool.Put(idx)
 
 	var cachedEntry *utils.CacheEntry
 	if opts.Cache.Cap > 0 {
@@ -66,7 +66,7 @@ func PostRequestHandler(
 	}
 
 	for {
-		bytesRead, err := req.Body.Read((*buf))
+		bytesRead, err := req.Body.Read(buf[:])
 
 		if bytesRead == 0 {
 			break
@@ -79,7 +79,7 @@ func PostRequestHandler(
 			return
 		}
 
-		_, err = file.Write((*buf)[:bytesRead])
+		_, err = file.Write(buf[:bytesRead])
 		if err != nil {
 			state.Status = http.StatusInternalServerError
 			state.Error = err
@@ -88,7 +88,7 @@ func PostRequestHandler(
 		}
 
 		if opts.Cache.Cap > 0 {
-			opts.Cache.Add(&safePath, (*buf)[:bytesRead], cachedEntry)
+			opts.Cache.Add(&safePath, buf[:bytesRead], cachedEntry)
 		}
 	}
 
