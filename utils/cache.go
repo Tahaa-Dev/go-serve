@@ -90,19 +90,22 @@ func (c *Cache) Update(file *string, data []byte, entry *CacheEntry, truncate bo
 }
 
 func (c *Cache) Add(file *string, data []byte, entry *CacheEntry) {
-	c.Mu.Lock()
-	defer c.Mu.Unlock()
-
 	if entry.Data == nil {
-		if c.Size == c.Cap {
+		c.Mu.Lock()
+
+		if c.Size > c.Cap {
 			c.evict()
 		}
 
 		c.LFUBuckets[c.MinFreq][*file] = tmp{}
 		c.Size++
+		c.Mu.Unlock()
 	}
 
-	entry.Data = append(entry.Data, data...)
+	arr := make([]byte, len(entry.Data)+len(data))
+	copy(arr, entry.Data)
+	copy(arr[len(entry.Data):], data)
+	entry.Data = arr
 }
 
 func (c *Cache) Delete(file *string) {
@@ -154,4 +157,6 @@ func (c *Cache) findNextBucket() {
 			return
 		}
 	}
+	// cache is completely empty
+	c.MinFreq = 0
 }
