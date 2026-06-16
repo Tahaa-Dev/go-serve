@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.3.0 - 2026-06-16
+
+### Added
+
+- `DELETE /` route for deleting files from disk and cache with auth and logging
+- `-m` flag for setting system rlimit on Unix systems
+- More perfromance improvements
+- Better RPS (requests per second) and concurrent requests scalability using less lock contentions and leveraging atomics
+- Smaller memory footprint
+- Much better architecture
+
+---
+
 ## v0.2.0 - 2026-06-11
 
 ### Added

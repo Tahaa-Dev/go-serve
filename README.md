@@ -12,6 +12,7 @@ A simple and efficient concurrent static file server written in Go.
     - `GET /`: For serving static files. Does not require Authorization headers.
     - `POST /`: For creating new files with the payload in request body and adding them to cache. Requires Authorization headers.
     - `PUT /`: For updating existing files with the payload in request body and adding/updating them to cache. Requires Authorization headers.
+    - `DELETE /`: For deleting files from disk and cache. Requires Authorization headers.
     - `GET /test`: For testing speed accurately without disk I/O overhead. Requires Authorization headers.
 
 ## Installation
@@ -42,10 +43,11 @@ go-serve [options]
 - `-d`: Set the directory to serve (default: .).
 - `-c`: Set the cache entry limit (default: 64).
 - `-l`: Set the log level threshold (options: Error, Warn, Info; default: Warn).
+- `-m`: Set system rlimit on Unix systems (default: 0 \[standard system rlimit\).
 
 Example:
 ```bash
-go-serve -p 3000 -d ./web -c 128 -l Info
+go-serve -p 3000 -d ./web -c 128 -l Info -m 2048
 ```
 
 The server will start and output its address to standard error.
