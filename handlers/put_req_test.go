@@ -60,8 +60,8 @@ func TestPutRequestHandlerErrorless(t *testing.T) {
 	}
 
 	entry := cache.Get(&name)
-	if entry.Freq != 2 {
-		t.Errorf("Unexpected entry.Freq: %d", entry.Freq)
+	if entry.Freq.Load() != 2 {
+		t.Errorf("Unexpected entry.Freq: %d", entry.Freq.Load())
 	}
 	if entry.ContentType != "application/octet-stream" {
 		t.Errorf("Unexpected entry.ContentType: %s", entry.ContentType)
@@ -69,10 +69,10 @@ func TestPutRequestHandlerErrorless(t *testing.T) {
 	if !bytes.Equal(entry.Data, data) {
 		t.Errorf("Unexpected entry.Data:\n %s", entry.Data)
 	}
-	if cache.MinFreq != 2 {
-		t.Errorf("Unexpected cache.MinFreq: %d", cache.MinFreq)
+	if cache.MinFreq.Load() != 2 {
+		t.Errorf("Unexpected cache.MinFreq: %d", cache.MinFreq.Load())
 	}
-	if _, exists := cache.LFUBuckets[entry.Freq][name]; !exists {
+	if _, exists := cache.LFUBuckets[entry.Freq.Load()].Bucket[name]; !exists {
 		t.Error("Unexpected LFUBuckets")
 	}
 

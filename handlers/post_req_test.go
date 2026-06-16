@@ -41,8 +41,8 @@ func TestPostRequestHandlerErrorless(t *testing.T) {
 
 	name := filepath.Clean(req.URL.Path)
 	entry := cache.Get(&name)
-	if entry.Freq != 1 {
-		t.Errorf("Unexpected entry.Freq: %d", entry.Freq)
+	if entry.Freq.Load() != 1 {
+		t.Errorf("Unexpected entry.Freq: %d", entry.Freq.Load())
 	}
 	if entry.ContentType != "text/html" {
 		t.Errorf("Unexpected entry.ContentType: %s", entry.ContentType)
@@ -50,8 +50,8 @@ func TestPostRequestHandlerErrorless(t *testing.T) {
 	if !bytes.Equal(entry.Data, data) {
 		t.Errorf("Unexpected entry.Data:\n %s", entry.Data)
 	}
-	if cache.MinFreq != 1 {
-		t.Errorf("Unexpected cache.MinFreq: %d", cache.MinFreq)
+	if cache.MinFreq.Load() != 1 {
+		t.Errorf("Unexpected cache.MinFreq: %d", cache.MinFreq.Load())
 	}
 }
 

@@ -142,8 +142,8 @@ func TestRequestHandlerNotCached(t *testing.T) {
 
 	name := filepath.Clean(req.URL.Path)
 	entry := cache.Get(&name)
-	if entry.Freq != 1 {
-		t.Errorf("Unexpected entry.Freq: %d", entry.Freq)
+	if entry.Freq.Load() != 1 {
+		t.Errorf("Unexpected entry.Freq: %d", entry.Freq.Load())
 	}
 	if !bytes.Equal(entry.Data, data) {
 		t.Errorf("Unexpected entry.Data:\n%s", entry.Data)

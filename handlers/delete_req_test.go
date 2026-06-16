@@ -54,11 +54,11 @@ func TestDeleteRequestHandlerExists(t *testing.T) {
 	if cache.Get(&filename).Data != nil {
 		t.Error("Expected csche to not contain file:", filename)
 	}
-	if cache.MinFreq != 0 {
-		t.Errorf("Unexpected cache.MinFreq: %d", cache.MinFreq)
+	if cache.MinFreq.Load() != 0 {
+		t.Errorf("Unexpected cache.MinFreq: %d", cache.MinFreq.Load())
 	}
-	if cache.Size != 0 {
-		t.Errorf("Unexpected cache.Size: %d", cache.Size)
+	if cache.Size.Load() != 0 {
+		t.Errorf("Unexpected cache.Size: %d", cache.Size.Load())
 	}
 
 	if _, err = os.Stat(file.Name()); !errors.Is(err, os.ErrNotExist) {
