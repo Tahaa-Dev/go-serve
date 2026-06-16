@@ -22,7 +22,7 @@ type LFUBucket struct {
 }
 
 type Cache struct {
-	Mu         *sync.Mutex
+	Mu         *sync.RWMutex
 	Files      map[string]*CacheEntry
 	MinFreq    atomic.Uint32
 	LFUBuckets [64]LFUBucket
@@ -40,7 +40,7 @@ func NewCache(cacheCap uint) Cache {
 	}
 
 	return Cache{
-		Mu:         &sync.Mutex{},
+		Mu:         &sync.RWMutex{},
 		Files:      make(map[string]*CacheEntry, cacheCap),
 		MinFreq:    atomic.Uint32{},
 		LFUBuckets: buckets,
@@ -50,11 +50,12 @@ func NewCache(cacheCap uint) Cache {
 }
 
 func (c *Cache) Get(file *string) *CacheEntry {
-	c.Mu.Lock()
-	defer c.Mu.Unlock()
+	c.Mu.RLock()
 
 	entry, exists := c.Files[*file]
 	if !exists {
+		c.Mu.RUnlock()
+		c.Mu.Lock()
 		entry = &CacheEntry{
 			&sync.RWMutex{},
 			false,
@@ -64,17 +65,22 @@ func (c *Cache) Get(file *string) *CacheEntry {
 		}
 		entry.Freq.Store(c.MinFreq.Load())
 		c.Files[*file] = entry
+		c.Mu.Unlock()
 
 		return c.Files[*file]
 	}
+	defer c.Mu.RUnlock()
 
 	oldIdx := entry.Freq.Load()
 	newIdx := (oldIdx + 1) % 64
 
 	c.LFUBuckets[oldIdx].lock.Lock()
 	delete(c.LFUBuckets[oldIdx].Bucket, *file)
-	c.LFUBuckets[newIdx].Bucket[*file] = tmp{}
 	c.LFUBuckets[oldIdx].lock.Unlock()
+
+	c.LFUBuckets[newIdx].lock.Lock()
+	c.LFUBuckets[newIdx].Bucket[*file] = tmp{}
+	c.LFUBuckets[newIdx].lock.Unlock()
 
 	minFreq := c.MinFreq.Load()
 	c.LFUBuckets[minFreq].lock.RLock()
