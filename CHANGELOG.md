@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.1 - 2026-06-17
+
+### Fixed
+
+- Logging to make it more efficient as it used too much CPU power
+
+---
+
 ## v0.3.0 - 2026-06-16
 
 ### Added
