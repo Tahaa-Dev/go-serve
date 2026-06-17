@@ -121,6 +121,7 @@ func WriteLogs(logChan chan LogMessage, logBuf *bufio.Writer, maxAge int64, idle
 
 	maxDuration := time.Duration(maxAge) * time.Second
 	maxAgeTicker := time.NewTicker(maxDuration)
+	defer maxAgeTicker.Stop()
 
 	for {
 		select {
@@ -153,6 +154,8 @@ func WriteLogs(logChan chan LogMessage, logBuf *bufio.Writer, maxAge int64, idle
 					msg.StartTime.Local().Format("15:04:05"),
 				)
 			}
+			idleTicker.Reset(idleDuration)
+
 		case <-idleTicker.C:
 			err := logBuf.Flush()
 			if err != nil {
