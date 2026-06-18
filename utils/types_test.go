@@ -73,7 +73,7 @@ func TestCacheAddEvict(t *testing.T) {
 	data2 := []byte("<!DOCTYPE html>\n<html>\n<body>\n<h2>test2</h2>\n</body>\n</html>")
 	cache.Add(&filename2, data2, cache.Get(&filename2))
 
-	if cache.MinFreq.Load() != 1 {
+	if cache.MinFreq.Load() != 0 {
 		t.Errorf("Unexpected cache.MinFreq: %d", cache.MinFreq.Load())
 	}
 	if data := cache.Get(&filename2).Data; !bytes.Equal(data2, data) {

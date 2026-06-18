@@ -32,10 +32,11 @@ type Cache struct {
 
 func NewCache(cacheCap uint) Cache {
 	buckets := [64]LFUBucket{}
+	alloc := max(64, cacheCap*8)
 
 	for i := range 64 {
 		// pre-allocate 8 times the cache capacity per LFUBucket
-		buckets[i].Bucket = make(map[string]tmp, cacheCap*8)
+		buckets[i].Bucket = make(map[string]tmp, alloc)
 		buckets[i].lock = &sync.RWMutex{}
 	}
 
@@ -72,7 +73,7 @@ func (c *Cache) Get(file *string) *CacheEntry {
 	defer c.Mu.RUnlock()
 
 	oldIdx := entry.Freq.Load()
-	newIdx := (oldIdx + 1) % 64
+	newIdx := (oldIdx + 1) & 63
 
 	c.LFUBuckets[oldIdx].lock.Lock()
 	delete(c.LFUBuckets[oldIdx].Bucket, *file)
@@ -104,7 +105,7 @@ func (c *Cache) Update(file *string, data []byte, entry *CacheEntry, truncate bo
 
 func (c *Cache) Add(file *string, data []byte, entry *CacheEntry) {
 	if entry.Data == nil {
-		if uint(c.Size.Load()) > c.Cap {
+		if uint(c.Size.Load()) >= c.Cap {
 			c.evict()
 		}
 
@@ -153,8 +154,23 @@ func (c *Cache) evict() {
 		defer c.LFUBuckets[minFreq].lock.Unlock()
 
 		for filename := range c.LFUBuckets[minFreq].Bucket {
-			delete(c.LFUBuckets[minFreq].Bucket, filename)
+			c.Mu.Lock()
 
+			entry := c.Files[filename]
+			entry.Mu.Lock()
+			if entry.Data == nil {
+				continue
+			}
+			delete(c.Files, filename)
+			entry.Mu.Unlock()
+
+			c.Mu.Unlock()
+
+			delete(c.LFUBuckets[minFreq].Bucket, filename)
+			return
+		}
+
+		for filename := range c.LFUBuckets[minFreq].Bucket {
 			c.Mu.Lock()
 
 			entry := c.Files[filename]
@@ -163,7 +179,9 @@ func (c *Cache) evict() {
 			entry.Mu.Unlock()
 
 			c.Mu.Unlock()
-			break
+
+			delete(c.LFUBuckets[minFreq].Bucket, filename)
+			return
 		}
 	}()
 
@@ -174,10 +192,11 @@ func (c *Cache) evict() {
 	if len(c.LFUBuckets[minFreq].Bucket) == 0 {
 		c.findNextBucket()
 	}
+	c.LFUBuckets[minFreq].lock.RUnlock()
 }
 
 func (c *Cache) findNextBucket() {
-	newMin := (c.MinFreq.Load() + 1) % 64
+	newMin := (c.MinFreq.Load() + 1) & 63
 
 	for i, bucket := range c.LFUBuckets[newMin:] {
 		bucket.lock.RLock()
