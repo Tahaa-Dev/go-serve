@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 
 	"github.com/Tahaa-Dev/go-serve/handlers"
@@ -87,22 +88,11 @@ func main() {
 
 	cache := utils.NewCache(cacheCap)
 
-	logChan := make(chan utils.LogMessage, 16*1024)
+	logChan := make(chan utils.LogMessage, 32*1024)
 	logBuf := bufio.NewWriterSize(os.Stderr, 1024*1024)
 
 	go utils.WriteLogs(logChan, logBuf, 10, 2500)
-
-	defer func() {
-		close(logChan)
-		utils.WriteLogs(logChan, logBuf, 10, 2500)
-
-		err := logBuf.Flush()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error while flushing log buffer to Stderr")
-
-			os.Exit(1)
-		}
-	}()
+	defer close(logChan)
 
 	serverMux := http.NewServeMux()
 
@@ -183,6 +173,13 @@ func main() {
 		ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout:       5 * time.Second, // a typical request body isn't very large
 		WriteTimeout:      15 * time.Second,
+		ConnState: func(c net.Conn, cs http.ConnState) {
+			if cs == http.StateIdle {
+				if conn, ok := c.(*net.TCPConn); ok {
+					_ = conn.SetLinger(0)
+				}
+			}
+		},
 	}
 
 	fmt.Fprintf(

@@ -123,11 +123,12 @@ func WriteLogs(logChan chan LogMessage, logBuf *bufio.Writer, maxAge int64, idle
 	maxAgeTicker := time.NewTicker(maxDuration)
 	defer maxAgeTicker.Stop()
 
+LogLoop:
 	for {
 		select {
 		case msg, ok := <-logChan:
 			if !ok {
-				return
+				break LogLoop
 			}
 
 			errStr := "\n"
@@ -170,5 +171,10 @@ func WriteLogs(logChan chan LogMessage, logBuf *bufio.Writer, maxAge int64, idle
 				fmt.Fprintln(os.Stderr, "Failed to flush logs")
 			}
 		}
+	}
+
+	err := logBuf.Flush()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Failed to flush logs")
 	}
 }

@@ -53,12 +53,13 @@ func RequestHandler(
 			}
 		}
 
+		cachedFile.Mu.RLock()
 		if cachedFile.IsLoaded {
-			cachedFile.Mu.RLock()
 			checkCache()
 			cachedFile.Mu.RUnlock()
 			return
 		}
+		cachedFile.Mu.RUnlock()
 
 		cachedFile.Mu.Lock()
 		cachedEntry = cachedFile
