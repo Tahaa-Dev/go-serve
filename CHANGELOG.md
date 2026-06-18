@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.3.2 - 2026-06-17
+
+### Fixed
+
+- Major deadlock bug in cache
+- Optimized addition of new entries into cache
+- Optimized connection dropping
+
+---
+
 ## v0.3.1 - 2026-06-17
 
 ### Fixed
