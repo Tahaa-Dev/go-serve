@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.3.4 - 2026-06-19
+
+### Fixed
+
+- Small optimizations
+- Cleaned code up and removed unnecessary code
+- Removed log-level configuration per request via Logging headers as it can cause vulnerabilities
+
+---
+
 ## v0.3.3 - 2026-06-19
 
 ### Removed
