@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.3 - 2026-06-19
+
+### Removed
+
+- `GET /test` route
+
+---
+
 ## v0.3.2 - 2026-06-18
 
 ### Fixed
