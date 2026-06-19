@@ -140,13 +140,6 @@ func main() {
 		)
 	})
 
-	serverMux.HandleFunc("GET /test", func(w http.ResponseWriter, req *http.Request) {
-		handlers.TestHandler(
-			w,
-			req,
-		)
-	})
-
 	go startPprof(logChan, logThreshold)
 
 	server := &http.Server{
@@ -154,7 +147,7 @@ func main() {
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			state := utils.NewLogState()
 
-			realm := "GET /test Route"
+			realm := ""
 			switch r.Method {
 			case "GET":
 				state.CheckAuth = false

@@ -13,7 +13,6 @@ A simple and efficient concurrent static file server written in Go.
     - `POST /`: For creating new files with the payload in request body and adding them to cache. Requires Authorization headers.
     - `PUT /`: For updating existing files with the payload in request body and adding/updating them to cache. Requires Authorization headers.
     - `DELETE /`: For deleting files from disk and cache. Requires Authorization headers.
-    - `GET /test`: For testing speed accurately without disk I/O overhead. Requires Authorization headers.
 
 ## Installation
 
