@@ -34,34 +34,6 @@ func (t *testResponseWriter) WriteHeader(statusCode int) {
 	t.status = statusCode
 }
 
-func TestLogRequest(t *testing.T) {
-	msg := utils.LogMessage{
-		StartTime: time.Now(),
-		Duration:  time.Millisecond * 3,
-		URL:       "/page.html",
-		Method:    "GET",
-		Status:    http.StatusOK,
-		Size:      27000,
-		Error:     nil,
-	}
-
-	ch := make(chan utils.LogMessage, 2)
-
-	utils.LogRequest(msg, ch, 300, "Info")
-	utils.LogRequest(msg, ch, 200, "Warn")
-	close(ch)
-
-	i := 0
-
-	for range ch {
-		i++
-	}
-
-	if i != 2 {
-		t.Error("Expected to get 2 messages, but only got", i)
-	}
-}
-
 func TestAuthAllowed(t *testing.T) {
 	status := http.StatusOK
 	var err error
@@ -192,34 +164,24 @@ func TestWriteLogsIdle(t *testing.T) {
 
 	go utils.WriteLogs(ch, buf, 1, 50)
 
-	utils.LogRequest(
-		utils.LogMessage{
-			StartTime: testTime,
-			Duration:  1 * time.Second,
-			Method:    "GET",
-			URL:       "/page.html",
-			Status:    http.StatusOK,
-			Size:      pageSize,
-			Error:     nil,
-		},
-		ch,
-		200,
-		"Info",
-	)
-	utils.LogRequest(
-		utils.LogMessage{
-			StartTime: testTime,
-			Duration:  25 * time.Millisecond,
-			Method:    "GET",
-			URL:       "/",
-			Status:    http.StatusInternalServerError,
-			Size:      0,
-			Error:     errors.New("TEST"),
-		},
-		ch,
-		200,
-		"Info",
-	)
+	ch <- utils.LogMessage{
+		StartTime: testTime,
+		Duration:  1 * time.Second,
+		Method:    "GET",
+		URL:       "/page.html",
+		Status:    http.StatusOK,
+		Size:      pageSize,
+		Error:     nil,
+	}
+	ch <- utils.LogMessage{
+		StartTime: testTime,
+		Duration:  25 * time.Millisecond,
+		Method:    "GET",
+		URL:       "/",
+		Status:    http.StatusInternalServerError,
+		Size:      0,
+		Error:     errors.New("TEST"),
+	}
 
 	time.Sleep(70 * time.Millisecond)
 	close(ch)
@@ -249,34 +211,24 @@ func TestWriteLogsActive(t *testing.T) {
 	testTime := time.Now()
 	pageSize := (6 * 1024 * 1024) + 79
 
-	utils.LogRequest(
-		utils.LogMessage{
-			StartTime: testTime,
-			Duration:  1 * time.Second,
-			Method:    "GET",
-			URL:       "/page.html",
-			Status:    http.StatusOK,
-			Size:      pageSize,
-			Error:     nil,
-		},
-		ch,
-		200,
-		"Info",
-	)
-	utils.LogRequest(
-		utils.LogMessage{
-			StartTime: testTime,
-			Duration:  25 * time.Millisecond,
-			Method:    "GET",
-			URL:       "/",
-			Status:    http.StatusInternalServerError,
-			Size:      0,
-			Error:     errors.New("TEST"),
-		},
-		ch,
-		200,
-		"Info",
-	)
+	ch <- utils.LogMessage{
+		StartTime: testTime,
+		Duration:  1 * time.Second,
+		Method:    "GET",
+		URL:       "/page.html",
+		Status:    http.StatusOK,
+		Size:      pageSize,
+		Error:     nil,
+	}
+	ch <- utils.LogMessage{
+		StartTime: testTime,
+		Duration:  25 * time.Millisecond,
+		Method:    "GET",
+		URL:       "/",
+		Status:    http.StatusInternalServerError,
+		Size:      0,
+		Error:     errors.New("TEST"),
+	}
 
 	time.Sleep(1100 * time.Millisecond)
 	close(ch)

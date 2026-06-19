@@ -24,33 +24,6 @@ func init() {
 	}
 }
 
-func LogRequest(
-	msg LogMessage,
-	ch chan<- LogMessage,
-	threshold int,
-	logHeader string,
-) {
-	switch logHeader {
-	case "Error":
-		if threshold > 400 {
-			threshold = 400
-		}
-	case "Warn":
-		if threshold > 300 {
-			threshold = 300
-		}
-	case "Info":
-		if threshold > 200 {
-			threshold = 200
-		}
-	default:
-	}
-
-	if msg.Status >= threshold {
-		ch <- msg
-	}
-}
-
 func Auth(
 	status *int,
 	err *error,
@@ -84,8 +57,8 @@ func LogMiddleware(
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		defer func() {
-			LogRequest(
-				LogMessage{
+			if state.Status >= logThreshold {
+				logChan <- LogMessage{
 					state.StartTime,
 					time.Since(state.StartTime),
 					req.URL.Path,
@@ -93,11 +66,8 @@ func LogMiddleware(
 					state.Status,
 					state.Size,
 					state.Error,
-				},
-				logChan,
-				logThreshold,
-				req.Header.Get("Logging"),
-			)
+				}
+			}
 		}()
 
 		if state.CheckAuth && !Auth(
