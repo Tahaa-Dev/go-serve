@@ -1,6 +1,6 @@
 <h1 align="center">go-serve</h1>
 
-A simple and efficient concurrent static file server written in Go.
+A simple and efficient concurrent static file server written in Go
 
 ## Features
 
@@ -14,19 +14,19 @@ A simple and efficient concurrent static file server written in Go.
     - `PUT /`: For updating existing files with the payload in request body and adding/updating them to cache. Requires Authorization headers.
     - `DELETE /`: For deleting files from disk and cache. Requires Authorization headers.
 
-## Installation
+ ## Installation
 
 1. Ensure you have Go installed on your system.
 2. Build the project:
-- from root directory:
-   ```bash
-   go build -o go-serve .
-   ```
+    - from root directory:
+       ```bash
+       go build -o go-serve .
+       ```
 
-- or using `go install`:
-   ```bash
-   go install github.com/Tahaa-Dev/go-serve@latest
-   ```
+    - or using `go install`:
+       ```bash
+       go install github.com/Tahaa-Dev/go-serve@latest
+       ```
 
 ## Usage
 
@@ -42,7 +42,7 @@ go-serve [options]
 - `-d`: Set the directory to serve (default: .).
 - `-c`: Set the cache entry limit (default: 64).
 - `-l`: Set the log level threshold (options: Error, Warn, Info; default: Warn).
-- `-m`: Set system rlimit on Unix systems (default: 0 \[standard system rlimit\).
+- `-m`: Set system rlimit on Unix systems (default: 0 \[standard system rlimit\]).
 
 Example:
 ```bash
@@ -51,11 +51,26 @@ go-serve -p 3000 -d ./web -c 128 -l Info -m 2048
 
 The server will start and output its address to standard error.
 
+### Logging
+
+- Logs are outputted to standard error in the following format:
+
+```
+[TIMESTAMP] <METHOD> <PATH>: Status: <STATUS> | Size: <SIZE> | Time: <TIME_TAKEN>
+```
+
+- if an error happened while processing the request, logs include an `Error` entry with the error message:
+
+```
+[TIMESTAMP]... | Error: <ERROR_MESSAGE>
+```
+
 ## Development
 
 - `main.go`: Entry point and server configuration.
 - `handlers/`: Request handler logic.
 - `utils/`: Utilities for logging, caching, and types.
+- `sys/`: Utilities that touch the system (syscalls)
 
 See <a href="CONTRIBUTING.md">CONTRIBUTING.md</a> for information about contributing to the project.
 See <a href="CHANGELOG.md">CHANGELOG.md</a> for news and changes about the project.
