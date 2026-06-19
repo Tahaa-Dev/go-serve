@@ -47,7 +47,7 @@ func (p *Pool) Get() (int, *[bufSize]byte) {
 }
 
 func (p *Pool) Put(idx int) {
-	if idx != -1 {
-		p.masks[idx/64].mask.And(^(uint64(1) << (idx % 64)))
+	if idx > -1 {
+		p.masks[idx/64].mask.And(^(uint64(1) << (idx & 63)))
 	}
 }

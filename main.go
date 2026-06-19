@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/Tahaa-Dev/go-serve/handlers"
 	"github.com/Tahaa-Dev/go-serve/sys"
@@ -19,7 +20,6 @@ import (
 
 func startPprof(logChan chan<- utils.LogMessage, logThreshold int) {
 	fmt.Fprintln(os.Stderr, "Started diagnostics server on http://localhost:8081/debug/pprof/")
-
 	state := utils.NewLogState()
 	server := &http.Server{
 		Addr: "localhost:8081",
@@ -76,12 +76,12 @@ func main() {
 	}
 
 	logThreshold := 300
-	switch logLevel {
-	case "Error":
+	switch strings.ToLower(logLevel) {
+	case "error":
 		logThreshold = 400
-	case "Warn":
+	case "warn":
 		logThreshold = 300
-	case "Info":
+	case "info":
 		logThreshold = 200
 	default:
 	}
