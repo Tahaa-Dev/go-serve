@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/Tahaa-Dev/go-serve/handlers"
@@ -46,86 +47,21 @@ func startPprof(logChan chan<- utils.LogMessage, logThreshold int) {
 	}
 }
 
-func newMux(dir string, cache *utils.Cache, logThreshold int) *http.ServeMux {
-	serverMux := http.NewServeMux()
+var (
+	port         string
+	dir          string
+	cacheCap     uint
+	index        string
+	logThreshold int
+)
 
-	serverMux.HandleFunc("GET /", func(w http.ResponseWriter, req *http.Request) {
-		state := utils.NewLogState()
-		state.CheckAuth = false
-
-		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlers.RequestHandler(
-				&utils.StateResW{State: &state, W: w},
-				r,
-				utils.ReqHandlerOpts{
-					Dir:   dir,
-					Cache: cache,
-				},
-			)
-		}), logChan, logThreshold, &state, "GET / Route",
-		).ServeHTTP(w, req)
-	})
-
-	serverMux.HandleFunc("POST /", func(w http.ResponseWriter, req *http.Request) {
-		state := utils.NewLogState()
-
-		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlers.PostRequestHandler(
-				&utils.StateResW{State: &state, W: w},
-				r,
-				utils.ReqHandlerOpts{
-					Dir:   dir,
-					Cache: cache,
-				},
-			)
-		}), logChan, logThreshold, &state, "POST / Route",
-		).ServeHTTP(w, req)
-	})
-
-	serverMux.HandleFunc("PUT /", func(w http.ResponseWriter, req *http.Request) {
-		state := utils.NewLogState()
-
-		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlers.PutRequestHandler(
-				&utils.StateResW{State: &state, W: w},
-				r,
-				utils.ReqHandlerOpts{
-					Dir:   dir,
-					Cache: cache,
-				},
-			)
-		}), logChan, logThreshold, &state, "PUT / Route",
-		).ServeHTTP(w, req)
-	})
-
-	serverMux.HandleFunc("DELETE /", func(w http.ResponseWriter, req *http.Request) {
-		state := utils.NewLogState()
-
-		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlers.DeleteRequestHandler(
-				&utils.StateResW{State: &state, W: w},
-				r,
-				utils.ReqHandlerOpts{
-					Dir:   dir,
-					Cache: cache,
-				},
-			)
-		}), logChan, logThreshold, &state, "DELETE / Route",
-		).ServeHTTP(w, req)
-	})
-
-	return serverMux
-}
-
-func main() {
-	port := ""
-	dir := ""
-	cacheCap := uint(0)
-	maxConcurrentReq := uint64(0)
+func init() {
 	logLevel := ""
+	maxConcurrentReq := uint64(0)
 	flag.StringVar(&port, "p", "8000", "Serve on custom port (go-serve -p 3000)\n•")
 	flag.StringVar(&dir, "d", ".", "Directory to serve (go-serve -d ./website)\n•")
 	flag.UintVar(&cacheCap, "c", 64, "Specify the limit of cache entries (go-serve -c 128)\n•")
+	flag.StringVar(&index, "i", "index.html", "Specify index file name (go-serve -i index.md)\n•")
 	flag.Uint64Var(
 		&maxConcurrentReq,
 		"m",
@@ -143,12 +79,26 @@ func main() {
 	if err := sys.SetRLimit(maxConcurrentReq); err != nil {
 		fmt.Fprintln(
 			os.Stderr,
-			"Warning: Failed to set system rlimit\n Error Message:",
+			"Warning: Failed to set system rlimit\n • Error Message:",
 			err.Error(),
 		)
 	}
+	if fileInfo, err := os.Stat(filepath.Join(dir, index)); err != nil {
+		fmt.Fprintln(
+			os.Stderr,
+			"Error while opening index file for / route\n • Error Message:",
+			err.Error(),
+		)
+		os.Exit(1)
+	} else if fileInfo.IsDir() {
+		fmt.Fprintf(
+			os.Stderr,
+			"Error: Index '%s' is a directory",
+			index,
+		)
+		os.Exit(1)
+	}
 
-	logThreshold := 300
 	switch strings.ToLower(logLevel) {
 	case "error":
 		logThreshold = 400
@@ -158,7 +108,84 @@ func main() {
 		logThreshold = 200
 	default:
 	}
+}
 
+func newMux(dir string, index string, cache *utils.Cache, logThreshold int) *http.ServeMux {
+	serverMux := http.NewServeMux()
+
+	serverMux.HandleFunc("GET /", func(w http.ResponseWriter, req *http.Request) {
+		state := utils.NewLogState()
+		state.CheckAuth = false
+
+		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handlers.RequestHandler(
+				&utils.StateResW{State: &state, W: w},
+				r,
+				utils.ReqHandlerOpts{
+					Dir:   dir,
+					Cache: cache,
+					Index: index,
+				},
+			)
+		}), logChan, logThreshold, &state, "GET / Route",
+		).ServeHTTP(w, req)
+	})
+
+	serverMux.HandleFunc("POST /", func(w http.ResponseWriter, req *http.Request) {
+		state := utils.NewLogState()
+
+		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handlers.PostRequestHandler(
+				&utils.StateResW{State: &state, W: w},
+				r,
+				utils.ReqHandlerOpts{
+					Dir:   dir,
+					Cache: cache,
+					Index: index,
+				},
+			)
+		}), logChan, logThreshold, &state, "POST / Route",
+		).ServeHTTP(w, req)
+	})
+
+	serverMux.HandleFunc("PUT /", func(w http.ResponseWriter, req *http.Request) {
+		state := utils.NewLogState()
+
+		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handlers.PutRequestHandler(
+				&utils.StateResW{State: &state, W: w},
+				r,
+				utils.ReqHandlerOpts{
+					Dir:   dir,
+					Cache: cache,
+					Index: index,
+				},
+			)
+		}), logChan, logThreshold, &state, "PUT / Route",
+		).ServeHTTP(w, req)
+	})
+
+	serverMux.HandleFunc("DELETE /", func(w http.ResponseWriter, req *http.Request) {
+		state := utils.NewLogState()
+
+		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handlers.DeleteRequestHandler(
+				&utils.StateResW{State: &state, W: w},
+				r,
+				utils.ReqHandlerOpts{
+					Dir:   dir,
+					Cache: cache,
+					Index: index,
+				},
+			)
+		}), logChan, logThreshold, &state, "DELETE / Route",
+		).ServeHTTP(w, req)
+	})
+
+	return serverMux
+}
+
+func main() {
 	cache := utils.NewCache(cacheCap)
 
 	logBuf := bufio.NewWriterSize(os.Stderr, 1024*1024)
@@ -170,7 +197,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              ":" + port,
-		Handler:           newMux(dir, &cache, logThreshold),
+		Handler:           newMux(dir, index, &cache, logThreshold),
 		ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout:       5 * time.Second, // a typical request body isn't very large
 		WriteTimeout:      15 * time.Second,

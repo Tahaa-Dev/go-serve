@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -77,11 +76,6 @@ func RequestHandler(
 		}
 	}
 
-	contentType := utils.TypeByExtension(filepath.Ext(safePath))
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-
 	fullPath := filepath.Join(opts.Dir, safePath)
 	openFile, err := os.OpenFile(fullPath, os.O_RDONLY, 0400)
 	if err != nil {
@@ -94,17 +88,8 @@ func RequestHandler(
 		http.Error(w, w.State.Error.Error(), w.State.Status)
 		return
 	}
-
 	defer func() {
-		err := openFile.Close()
-		if err != nil {
-			fmt.Fprintf(
-				os.Stderr,
-				"Error while closing file: %s\n • Error Message: %s",
-				fullPath,
-				err.Error(),
-			)
-		}
+		_ = openFile.Close()
 	}()
 
 	fileInfo, err := openFile.Stat()
@@ -115,70 +100,43 @@ func RequestHandler(
 		return
 	}
 
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
-
 	if fileInfo.IsDir() {
-		contentType = "text/html"
-		w.Header().Set("Content-Type", contentType)
-		paths := ""
+		_ = openFile.Close()
+		fullPath = filepath.Join(fullPath, opts.Index)
 
-		err := filepath.WalkDir(fullPath, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
+		openFile, err = os.OpenFile(fullPath, os.O_RDONLY, 0400)
+		if err != nil {
+			w.State.Error = err
+			if errors.Is(w.State.Error, os.ErrNotExist) {
+				w.State.Status = http.StatusNotFound
+			} else {
+				w.State.Status = http.StatusInternalServerError
 			}
+			http.Error(w, w.State.Error.Error(), w.State.Status)
+			return
+		}
 
-			if !d.IsDir() {
-				path = filepath.Clean(path)[len(opts.Dir)+1:]
-				paths += fmt.Sprintf("\n<li><a href=\"%s\">%s</a></li>", path, path)
-			}
-
-			return nil
-		})
-
+		fileInfo, err = openFile.Stat()
 		if err != nil {
 			w.State.Error = err
 			w.State.Status = http.StatusInternalServerError
 			http.Error(w, w.State.Error.Error(), w.State.Status)
 			return
 		}
+	}
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
 
-		// allocates a new array since we can't use the pool as formatting can grow the array
-		// and directory listing requests are very rare as well
-		dirListing := make([]byte, 0, 4*1024)
-		dirListing = fmt.Appendf(
-			dirListing,
-			"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Directory "+
-				"listing for %s/</title>\n</head>\n<body>\n<h1>Directory listing for %s/</h1>"+
-				"\n<hr>\n<ul>%s\n</ul>\n<hr>\n</body>\n</html>",
-			fullPath[len(opts.Dir):],
-			fullPath[len(opts.Dir):],
-			paths,
-		)
-
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(dirListing)))
-
-		// #nosec G705 -- intentional file server design as directory listing is guaranteed to be valid HTML
-		bytesWritten, err := w.Write(dirListing)
-
-		w.State.Size += bytesWritten
-
-		if err != nil {
-			w.State.Status = http.StatusBadGateway
-			w.State.Error = err
-			return
-		}
-
-		if opts.Cache.Cap > 0 {
-			opts.Cache.Add(&safePath, dirListing, cachedEntry)
-			cachedEntry.ContentType = contentType
-			cachedEntry.IsLoaded = true
-		}
-		return
+	contentType := utils.TypeByExtension(filepath.Ext(fullPath))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	if opts.Cache.Cap > 0 {
+		cachedEntry.ContentType = contentType
 	}
 
 	idx, buf := bufPool.Get()
 	defer bufPool.Put(idx)
-	first := true
 	for {
 		bytesRead, err := openFile.Read(buf[:])
 
@@ -190,13 +148,6 @@ func RequestHandler(
 			w.State.Status = http.StatusInternalServerError
 			w.State.Error = err
 			return
-		}
-
-		if first {
-			w.Header().Set("Content-Type", contentType)
-			if opts.Cache.Cap > 0 {
-				cachedEntry.ContentType = contentType
-			}
 		}
 
 		bytesWritten, err := w.Write(buf[:bytesRead])
@@ -212,8 +163,6 @@ func RequestHandler(
 		if opts.Cache.Cap > 0 {
 			opts.Cache.Add(&safePath, buf[:bytesRead], cachedEntry)
 		}
-
-		first = false
 	}
 
 	if opts.Cache.Cap > 0 {

@@ -8,6 +8,7 @@ import (
 type ReqHandlerOpts struct {
 	Dir   string
 	Cache *Cache
+	Index string
 }
 
 type LogMessage struct {
