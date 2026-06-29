@@ -170,7 +170,9 @@ func RequestHandler(
 			cachedEntry.ContentType = contentType
 		}
 
-		cachedEntry.IsLoaded = true
+		if opts.Cache.Cap > 0 {
+			cachedEntry.IsLoaded = true
+		}
 		return
 	}
 
