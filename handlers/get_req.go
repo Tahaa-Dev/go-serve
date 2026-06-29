@@ -15,12 +15,11 @@ import (
 var bufPool = utils.NewPool()
 
 func RequestHandler(
-	rw http.ResponseWriter,
+	w *utils.StateResW,
 	req *http.Request,
 	opts utils.ReqHandlerOpts,
 ) {
 	var cachedEntry *utils.CacheEntry
-	w := rw.(*utils.StateResW)
 
 	safePath := filepath.Clean(req.URL.Path)
 
@@ -64,6 +63,11 @@ func RequestHandler(
 		cachedFile.Mu.Lock()
 		cachedEntry = cachedFile
 		defer cachedEntry.Mu.Unlock()
+		defer func() {
+			if w.State.Error != nil {
+				cachedEntry.Data = nil
+			}
+		}()
 
 		// double check if another goroutine built the cache while
 		// this goroutine was waiting for the write lock
@@ -161,16 +165,12 @@ func RequestHandler(
 		if err != nil {
 			w.State.Status = http.StatusBadGateway
 			w.State.Error = err
-			http.Error(w, w.State.Error.Error(), w.State.Status)
 			return
 		}
 
 		if opts.Cache.Cap > 0 {
 			opts.Cache.Add(&safePath, dirListing, cachedEntry)
 			cachedEntry.ContentType = contentType
-		}
-
-		if opts.Cache.Cap > 0 {
 			cachedEntry.IsLoaded = true
 		}
 		return
@@ -189,10 +189,6 @@ func RequestHandler(
 		if err != nil && !errors.Is(err, io.EOF) {
 			w.State.Status = http.StatusInternalServerError
 			w.State.Error = err
-			http.Error(w, w.State.Error.Error(), w.State.Status)
-			if opts.Cache.Cap > 0 {
-				opts.Cache.Delete(&safePath)
-			}
 			return
 		}
 
@@ -210,10 +206,6 @@ func RequestHandler(
 		if err != nil {
 			w.State.Status = http.StatusBadGateway
 			w.State.Error = err
-			http.Error(w, w.State.Error.Error(), w.State.Status)
-			if opts.Cache.Cap > 0 {
-				opts.Cache.Delete(&safePath)
-			}
 			return
 		}
 

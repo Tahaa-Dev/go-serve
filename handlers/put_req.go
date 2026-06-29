@@ -12,14 +12,13 @@ import (
 )
 
 func PutRequestHandler(
-	rw http.ResponseWriter,
+	w *utils.StateResW,
 	req *http.Request,
 	opts utils.ReqHandlerOpts,
 ) {
 	safePath := filepath.Clean(req.URL.Path)
 	fullPath := filepath.Join(opts.Dir, safePath)
 	var cachedEntry *utils.CacheEntry
-	w := rw.(*utils.StateResW)
 
 	file, err := os.OpenFile(fullPath, os.O_WRONLY|os.O_TRUNC, 0600)
 
@@ -46,6 +45,14 @@ func PutRequestHandler(
 		}
 	}()
 
+	fileInfo, err := file.Stat()
+	if err == nil && fileInfo.IsDir() {
+		w.State.Error = fmt.Errorf("bad request: path '%s' is a directory", fullPath)
+		w.State.Status = http.StatusBadRequest
+		http.Error(w, w.State.Error.Error(), w.State.Status)
+		return
+	}
+
 	message := []byte("file updated successfully")
 	w.State.Status = http.StatusOK
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -59,6 +66,11 @@ func PutRequestHandler(
 		cachedEntry = opts.Cache.Get(&safePath)
 		cachedEntry.Mu.Lock()
 		defer cachedEntry.Mu.Unlock()
+		defer func() {
+			if w.State.Error != nil {
+				cachedEntry.Data = nil
+			}
+		}()
 	}
 
 	first := true
@@ -70,7 +82,7 @@ func PutRequestHandler(
 		}
 
 		if err != nil && !errors.Is(err, io.EOF) {
-			w.State.Status = http.StatusInternalServerError
+			w.State.Status = http.StatusBadGateway
 			w.State.Error = err
 			http.Error(w, w.State.Error.Error(), w.State.Status)
 			return

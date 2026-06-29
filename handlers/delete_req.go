@@ -11,13 +11,20 @@ import (
 )
 
 func DeleteRequestHandler(
-	rw http.ResponseWriter,
+	w *utils.StateResW,
 	req *http.Request,
 	opts utils.ReqHandlerOpts,
 ) {
-	w := rw.(*utils.StateResW)
 	safePath := filepath.Clean(req.URL.Path)
 	fullPath := filepath.Join(opts.Dir, safePath)
+
+	fileInfo, err := os.Stat(fullPath)
+	if err == nil && fileInfo.IsDir() {
+		w.State.Error = fmt.Errorf("bad request: path '%s' is a directory", fullPath)
+		w.State.Status = http.StatusBadRequest
+		http.Error(w, w.State.Error.Error(), w.State.Status)
+		return
+	}
 
 	if err := os.Remove(fullPath); err != nil {
 		w.State.Error = err
@@ -44,7 +51,6 @@ func DeleteRequestHandler(
 	if err != nil {
 		w.State.Status = http.StatusBadGateway
 		w.State.Error = err
-		http.Error(w, w.State.Error.Error(), w.State.Status)
 		return
 	}
 }

@@ -29,6 +29,7 @@
 
 ### Commit Messages
 
+- Specify purpose of the commit, whether it's a feature addition or a bugfix: "Fix: ..." or "Feat: ..."
 - Be descriptive: "Fix: Fix possible lock contention in req.go:68" not "Update code"
 - Reference issues: "Fix #123: Handle empty request paths"
 

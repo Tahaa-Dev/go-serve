@@ -12,13 +12,12 @@ import (
 )
 
 func PostRequestHandler(
-	rw http.ResponseWriter,
+	w *utils.StateResW,
 	req *http.Request,
 	opts utils.ReqHandlerOpts,
 ) {
 	safePath := filepath.Clean(req.URL.Path)
 	fullPath := filepath.Join(opts.Dir, safePath)
-	w := rw.(*utils.StateResW)
 	file, err := os.OpenFile(
 		fullPath,
 		os.O_WRONLY|os.O_CREATE|os.O_EXCL,
@@ -48,6 +47,14 @@ func PostRequestHandler(
 		}
 	}()
 
+	fileInfo, err := file.Stat()
+	if err == nil && fileInfo.IsDir() {
+		w.State.Error = fmt.Errorf("bad request: path '%s' is a directory", fullPath)
+		w.State.Status = http.StatusBadRequest
+		http.Error(w, w.State.Error.Error(), w.State.Status)
+		return
+	}
+
 	message := []byte("file created successfully")
 	w.State.Status = http.StatusCreated
 	w.Header().Set("Location", safePath)
@@ -63,6 +70,11 @@ func PostRequestHandler(
 		cachedEntry = opts.Cache.Get(&safePath)
 		cachedEntry.Mu.Lock()
 		defer cachedEntry.Mu.Unlock()
+		defer func() {
+			if w.State.Error != nil {
+				cachedEntry.Data = nil
+			}
+		}()
 	}
 
 	for {
@@ -73,7 +85,7 @@ func PostRequestHandler(
 		}
 
 		if err != nil && !errors.Is(err, io.EOF) {
-			w.State.Status = http.StatusInternalServerError
+			w.State.Status = http.StatusBadGateway
 			w.State.Error = err
 			http.Error(w, w.State.Error.Error(), w.State.Status)
 			return
