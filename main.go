@@ -89,6 +89,7 @@ func startInternal(logChan chan<- utils.LogMessage, logThreshold int, cache *uti
 
 var (
 	port         string
+	host         string
 	dir          string
 	cacheCap     uint
 	index        string
@@ -98,10 +99,21 @@ var (
 func init() {
 	logLevel := ""
 	maxConcurrentReq := uint64(0)
-	flag.StringVar(&port, "p", "8000", "Serve on custom port (go-serve -p 3000)\n•")
 	flag.StringVar(&dir, "d", ".", "Directory to serve (go-serve -d ./website)\n•")
 	flag.UintVar(&cacheCap, "c", 64, "Specify the limit of cache entries (go-serve -c 128)\n•")
 	flag.StringVar(&index, "i", "index.html", "Specify index file name (go-serve -i index.md)\n•")
+	flag.StringVar(
+		&port,
+		"p",
+		"8000",
+		"Specify port to listen on for public GET / server (go-serve -p 3000)\n•",
+	)
+	flag.StringVar(
+		&host,
+		"host",
+		"127.0.0.1",
+		"Specify host to listen on for public GET / server. Defaults to localhost (go-serve -host 0.0.0.0)\n•",
+	)
 	flag.Uint64Var(
 		&maxConcurrentReq,
 		"r",
@@ -185,7 +197,7 @@ func main() {
 	go startInternal(logChan, logThreshold, &cache)
 
 	server := &http.Server{
-		Addr:              ":" + port,
+		Addr:              fmt.Sprintf("%s:%s", host, port),
 		Handler:           newMux(dir, index, &cache, logThreshold),
 		ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout:       5 * time.Second, // a typical request body isn't very large
