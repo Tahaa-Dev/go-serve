@@ -38,7 +38,7 @@ func TestDeleteRequestHandlerExists(t *testing.T) {
 	cache.Add(&name, []byte{0}, cache.Get(&name))
 
 	handlers.DeleteRequestHandler(
-		&utils.StateResW{State: &state, W: &w},
+		&utils.StateResW{State: state, W: &w},
 		req,
 		utils.ReqHandlerOpts{Dir: dir, Cache: &cache},
 	)
@@ -79,7 +79,7 @@ func TestDeleteRequestHandlerNotExists(t *testing.T) {
 	cache := utils.NewCache(4)
 
 	handlers.DeleteRequestHandler(
-		&utils.StateResW{State: &state, W: &w},
+		&utils.StateResW{State: state, W: &w},
 		req,
 		utils.ReqHandlerOpts{Dir: dir, Cache: &cache},
 	)

@@ -27,7 +27,7 @@ func TestPostRequestHandlerErrorless(t *testing.T) {
 	cache := utils.NewCache(4)
 
 	handlers.PostRequestHandler(
-		&utils.StateResW{State: &state, W: &w},
+		&utils.StateResW{State: state, W: &w},
 		req,
 		utils.ReqHandlerOpts{Dir: dir, Cache: &cache},
 	)
@@ -76,7 +76,7 @@ func TestPostRequestHandlerError(t *testing.T) {
 	cache := utils.NewCache(4)
 
 	handlers.PostRequestHandler(
-		&utils.StateResW{State: &state, W: &w},
+		&utils.StateResW{State: state, W: &w},
 		req,
 		utils.ReqHandlerOpts{Dir: dir, Cache: &cache},
 	)

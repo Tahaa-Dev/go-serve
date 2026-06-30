@@ -29,8 +29,8 @@ type LogState struct {
 	CheckAuth bool
 }
 
-func NewLogState() LogState {
-	return LogState{
+func NewLogState() *LogState {
+	return &LogState{
 		StartTime: time.Now(),
 		Status:    http.StatusOK,
 		Size:      0,

@@ -69,7 +69,7 @@ func TestLogMiddlewareErrorless(t *testing.T) {
 		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}),
 		ch,
 		200,
-		&state,
+		state,
 		"Test",
 	).ServeHTTP(&resp, &http.Request{
 		Header: map[string][]string{
@@ -101,7 +101,7 @@ func TestLogMiddlewareAuthError(t *testing.T) {
 		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}),
 		ch,
 		200,
-		&state,
+		state,
 		"Realm",
 	).ServeHTTP(&resp, &http.Request{
 		Header: map[string][]string{},
@@ -136,7 +136,7 @@ func TestLogMiddlewareStateMutation(t *testing.T) {
 		}),
 		ch,
 		200,
-		&state,
+		state,
 		"Test",
 	).ServeHTTP(&resp, &http.Request{
 		URL:    &url.URL{Path: "/"},

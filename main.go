@@ -13,28 +13,68 @@ import (
 	"github.com/Tahaa-Dev/go-serve/sys"
 	"github.com/Tahaa-Dev/go-serve/utils"
 
-	// #nosec G108 -- ppprof server is wrapped in auth middleware and is on local network on internal 8081 port
-	_ "net/http/pprof"
+	"net/http/pprof"
 	"os"
 	"time"
 )
 
 var logChan = make(chan utils.LogMessage, 32*1024)
 
-func startPprof(logChan chan<- utils.LogMessage, logThreshold int) {
-	fmt.Fprintln(os.Stderr, "Started diagnostics server on http://localhost:8081/debug/pprof/")
-	state := utils.NewLogState()
+func startInternal(logChan chan<- utils.LogMessage, logThreshold int, cache *utils.Cache) {
+	serverMux := http.NewServeMux()
+
+	addPprofRoute := func(route string, fn func(http.ResponseWriter, *http.Request)) {
+		serverMux.HandleFunc(route, func(w http.ResponseWriter, r *http.Request) {
+			utils.LogMiddleware(
+				http.HandlerFunc(
+					func(w http.ResponseWriter, r *http.Request) { fn(w, r) },
+				),
+				logChan,
+				logThreshold,
+				utils.NewLogState(),
+				route+" Diagnostics Route",
+			).ServeHTTP(w, r)
+		})
+	}
+	addPprofRoute("GET /debug/pprof", pprof.Index)
+	addPprofRoute("GET /debug/pprof/cmdline", pprof.Cmdline)
+	addPprofRoute("GET /debug/pprof/profile", pprof.Profile)
+	addPprofRoute("GET /debug/pprof/symbol", pprof.Symbol)
+	addPprofRoute("GET /debug/pprof/trace", pprof.Trace)
+
+	addRoute := func(route string, fn func(*utils.StateResW, *http.Request, utils.ReqHandlerOpts)) {
+		serverMux.HandleFunc(route, func(w http.ResponseWriter, req *http.Request) {
+			state := utils.NewLogState()
+
+			utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fn(
+					&utils.StateResW{State: state, W: w},
+					r,
+					utils.ReqHandlerOpts{
+						Dir:   dir,
+						Cache: cache,
+						Index: index,
+					},
+				)
+			}), logChan, logThreshold, state, route+" Route",
+			).ServeHTTP(w, req)
+		})
+	}
+	addRoute("POST /", handlers.PostRequestHandler)
+	addRoute("PUT /", handlers.PutRequestHandler)
+	addRoute("DELETE /", handlers.DeleteRequestHandler)
+
 	server := &http.Server{
-		Addr: "localhost:8081",
-		Handler: utils.LogMiddleware(
-			http.DefaultServeMux,
-			logChan,
-			logThreshold,
-			&state,
-			"Diagnostics",
-		),
+		Addr:              "127.0.0.1:8081",
+		Handler:           serverMux,
 		ReadHeaderTimeout: 3 * time.Second,
 	}
+
+	fmt.Fprintln(os.Stderr, "Started diagnostics server on http://localhost:8081/debug/pprof/")
+	fmt.Fprintln(
+		os.Stderr,
+		"Started internal routes server (POST /, PUT / and DELETE / routes) on http://localhost:8081",
+	)
 
 	err := server.ListenAndServe()
 	if err != nil {
@@ -64,9 +104,9 @@ func init() {
 	flag.StringVar(&index, "i", "index.html", "Specify index file name (go-serve -i index.md)\n•")
 	flag.Uint64Var(
 		&maxConcurrentReq,
-		"m",
+		"r",
 		0,
-		"Sets system rlimit on Unix, 0 means system limit (go-serve -m 1024)\n•",
+		"Sets system rlimit on Unix, 0 means system limit (go-serve -r 1024)\n•",
 	)
 	flag.StringVar(
 		&logLevel,
@@ -119,7 +159,7 @@ func newMux(dir string, index string, cache *utils.Cache, logThreshold int) *htt
 
 		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			handlers.RequestHandler(
-				&utils.StateResW{State: &state, W: w},
+				&utils.StateResW{State: state, W: w},
 				r,
 				utils.ReqHandlerOpts{
 					Dir:   dir,
@@ -127,58 +167,7 @@ func newMux(dir string, index string, cache *utils.Cache, logThreshold int) *htt
 					Index: index,
 				},
 			)
-		}), logChan, logThreshold, &state, "GET / Route",
-		).ServeHTTP(w, req)
-	})
-
-	serverMux.HandleFunc("POST /", func(w http.ResponseWriter, req *http.Request) {
-		state := utils.NewLogState()
-
-		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlers.PostRequestHandler(
-				&utils.StateResW{State: &state, W: w},
-				r,
-				utils.ReqHandlerOpts{
-					Dir:   dir,
-					Cache: cache,
-					Index: index,
-				},
-			)
-		}), logChan, logThreshold, &state, "POST / Route",
-		).ServeHTTP(w, req)
-	})
-
-	serverMux.HandleFunc("PUT /", func(w http.ResponseWriter, req *http.Request) {
-		state := utils.NewLogState()
-
-		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlers.PutRequestHandler(
-				&utils.StateResW{State: &state, W: w},
-				r,
-				utils.ReqHandlerOpts{
-					Dir:   dir,
-					Cache: cache,
-					Index: index,
-				},
-			)
-		}), logChan, logThreshold, &state, "PUT / Route",
-		).ServeHTTP(w, req)
-	})
-
-	serverMux.HandleFunc("DELETE /", func(w http.ResponseWriter, req *http.Request) {
-		state := utils.NewLogState()
-
-		utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handlers.DeleteRequestHandler(
-				&utils.StateResW{State: &state, W: w},
-				r,
-				utils.ReqHandlerOpts{
-					Dir:   dir,
-					Cache: cache,
-					Index: index,
-				},
-			)
-		}), logChan, logThreshold, &state, "DELETE / Route",
+		}), logChan, logThreshold, state, "GET / Route",
 		).ServeHTTP(w, req)
 	})
 
@@ -193,7 +182,7 @@ func main() {
 	go utils.WriteLogs(logChan, logBuf, 10, 2500)
 	defer close(logChan)
 
-	go startPprof(logChan, logThreshold)
+	go startInternal(logChan, logThreshold, &cache)
 
 	server := &http.Server{
 		Addr:              ":" + port,

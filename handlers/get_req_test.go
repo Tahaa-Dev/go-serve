@@ -59,7 +59,7 @@ func TestRequestHandlerNoCache(t *testing.T) {
 	w := testResponseWriter{make([]byte, 0, 1024), http.StatusOK, make(http.Header)}
 
 	handlers.RequestHandler(
-		&utils.StateResW{State: &state, W: &w},
+		&utils.StateResW{State: state, W: &w},
 		req,
 		utils.ReqHandlerOpts{Dir: dir, Cache: &cache},
 	)
@@ -114,7 +114,7 @@ func TestRequestHandlerNotCached(t *testing.T) {
 	w := testResponseWriter{make([]byte, 0, 1024), http.StatusOK, make(http.Header)}
 
 	handlers.RequestHandler(
-		&utils.StateResW{State: &state, W: &w},
+		&utils.StateResW{State: state, W: &w},
 		req,
 		utils.ReqHandlerOpts{Dir: dir, Cache: &cache},
 	)
