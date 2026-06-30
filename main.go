@@ -117,14 +117,14 @@ func init() {
 	flag.Uint64Var(
 		&maxConcurrentReq,
 		"r",
-		0,
-		"Sets system rlimit on Unix, 0 means system limit (go-serve -r 1024)\n•",
+		uint64(0),
+		"Sets system rlimit on Unix, 0 means system limit (go-serve -r 1024)\n• (default 0)",
 	)
 	flag.StringVar(
 		&logLevel,
 		"l",
 		"Warn",
-		"Set global log level threshold.\nOverrides Logging header in requests if Logging header has a higher log level threshold (go-serve -l Info)\n• Options: Error/Info/Warn",
+		"Set global log level threshold (go-serve -l Info)\n• Options: Error/Info/Warn",
 	)
 	flag.Parse()
 
