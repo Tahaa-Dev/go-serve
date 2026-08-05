@@ -1,14 +1,16 @@
 package utils
 
 import (
+	"io"
 	"net/http"
 	"time"
 )
 
 type ReqHandlerOpts struct {
-	Dir   string
-	Cache *Cache
-	Index string
+	Dir          string
+	Cache        *Cache
+	Index        string
+	MaxEntrySize uint
 }
 
 type LogMessage struct {
@@ -53,5 +55,13 @@ func (srw *StateResW) Write(b []byte) (int, error) {
 }
 
 func (srw *StateResW) WriteHeader(statusCode int) {
+	srw.State.Status = statusCode
 	srw.W.WriteHeader(statusCode)
+}
+
+func (srw *StateResW) ReadFrom(src io.Reader) (int64, error) {
+	if rf, ok := srw.W.(io.ReaderFrom); ok {
+		return rf.ReadFrom(src)
+	}
+	return io.Copy(srw.W, src)
 }

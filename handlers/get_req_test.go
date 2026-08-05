@@ -116,7 +116,7 @@ func TestRequestHandlerNotCached(t *testing.T) {
 	handlers.RequestHandler(
 		&utils.StateResW{State: state, W: &w},
 		req,
-		utils.ReqHandlerOpts{Dir: dir, Cache: &cache},
+		utils.ReqHandlerOpts{Dir: dir, Cache: &cache, MaxEntrySize: 4},
 	)
 
 	if state.Size != len(data) {

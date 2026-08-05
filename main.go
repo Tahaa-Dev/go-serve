@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -93,12 +92,13 @@ var (
 	dir          string
 	cacheCap     uint
 	index        string
+	maxEntrySize uint
 	logThreshold int
 )
 
 func init() {
 	logLevel := ""
-	maxConcurrentReq := uint64(0)
+	rlimit := uint64(0)
 	flag.StringVar(&dir, "d", ".", "Directory to serve (go-serve -d ./website)\n•")
 	flag.UintVar(&cacheCap, "c", 64, "Specify the limit of cache entries (go-serve -c 128)\n•")
 	flag.StringVar(&index, "i", "index.html", "Specify index file name (go-serve -i index.md)\n•")
@@ -115,10 +115,16 @@ func init() {
 		"Specify host to listen on for public GET / server. Defaults to localhost (go-serve -host 0.0.0.0)\n•",
 	)
 	flag.Uint64Var(
-		&maxConcurrentReq,
+		&rlimit,
 		"r",
 		uint64(0),
 		"Sets system rlimit on Unix, 0 means system limit (go-serve -r 1024)\n• (default 0)",
+	)
+	flag.UintVar(
+		&maxEntrySize,
+		"m",
+		4,
+		"Specify the max file size for caching in megabytes (go-serve -m 8)\n•",
 	)
 	flag.StringVar(
 		&logLevel,
@@ -128,7 +134,7 @@ func init() {
 	)
 	flag.Parse()
 
-	if err := sys.SetRLimit(maxConcurrentReq); err != nil {
+	if err := sys.SetRLimit(rlimit); err != nil {
 		fmt.Fprintln(
 			os.Stderr,
 			"Warning: Failed to set system rlimit\n • Error Message:",
@@ -174,9 +180,10 @@ func newMux(dir string, index string, cache *utils.Cache, logThreshold int) *htt
 				&utils.StateResW{State: state, W: w},
 				r,
 				utils.ReqHandlerOpts{
-					Dir:   dir,
-					Cache: cache,
-					Index: index,
+					Dir:          dir,
+					Cache:        cache,
+					Index:        index,
+					MaxEntrySize: maxEntrySize,
 				},
 			)
 		}), logChan, logThreshold, state, "GET / Route",
@@ -201,14 +208,8 @@ func main() {
 		Handler:           newMux(dir, index, &cache, logThreshold),
 		ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout:       5 * time.Second, // a typical request body isn't very large
-		WriteTimeout:      15 * time.Second,
-		ConnState: func(c net.Conn, cs http.ConnState) {
-			if cs == http.StateIdle {
-				if conn, ok := c.(*net.TCPConn); ok {
-					_ = conn.SetLinger(0)
-				}
-			}
-		},
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       3 * time.Minute,
 	}
 
 	fmt.Fprintf(

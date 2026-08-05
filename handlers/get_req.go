@@ -20,9 +20,11 @@ func RequestHandler(
 ) {
 	var cachedEntry *utils.CacheEntry
 
+	cacheEnabled := opts.Cache.Cap > 0
+
 	safePath := filepath.Clean(req.URL.Path)
 
-	if opts.Cache.Cap > 0 {
+	if cacheEnabled {
 		cachedFile := opts.Cache.Get(&safePath)
 
 		checkCache := func() {
@@ -61,8 +63,8 @@ func RequestHandler(
 
 		cachedFile.Mu.Lock()
 		cachedEntry = cachedFile
-		defer cachedEntry.Mu.Unlock()
 		defer func() {
+			cachedEntry.Mu.Unlock()
 			if w.State.Error != nil {
 				cachedEntry.Data = nil
 			}
@@ -124,14 +126,22 @@ func RequestHandler(
 			return
 		}
 	}
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
+	fileSizeTmp := fileInfo.Size()
+	fileSize := uint64(0)
+	if fileSizeTmp < 0 {
+		fileSize = uint64(fileSizeTmp * -1)
+	} else {
+		fileSize = uint64(fileSizeTmp)
+	}
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileSize))
+	cacheEnabled = cacheEnabled && (fileSize < uint64(opts.MaxEntrySize*1024*1024))
 
 	contentType := utils.TypeByExtension(filepath.Ext(fullPath))
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", contentType)
-	if opts.Cache.Cap > 0 {
+	if cacheEnabled {
 		cachedEntry.ContentType = contentType
 	}
 
@@ -160,12 +170,12 @@ func RequestHandler(
 			return
 		}
 
-		if opts.Cache.Cap > 0 {
+		if cacheEnabled {
 			opts.Cache.Add(&safePath, buf[:bytesRead], cachedEntry)
 		}
 	}
 
-	if opts.Cache.Cap > 0 {
+	if cacheEnabled {
 		cachedEntry.IsLoaded = true
 	}
 }
