@@ -188,11 +188,7 @@ func main() {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       3 * time.Minute,
 		ConnState: func(c net.Conn, cs http.ConnState) {
-			if keepalive {
-				return
-			}
-
-			if cs == http.StateIdle {
+			if cs == http.StateIdle && !keepalive {
 				_ = c.Close()
 			}
 		},

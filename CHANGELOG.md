@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4 - 2026-10-27
+
+### Removed
+
+Unnecessary HTTP method support for POST, PUT, DELETE
+
+### Added
+
+`-k` flag for toggling keepalive
+
+---
+
 ## v0.3.4 - 2026-06-19
 
 ### Fixed

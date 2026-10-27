@@ -12,7 +12,7 @@ type CacheEntry struct {
 	Mu          *sync.RWMutex
 	IsLoaded    bool
 	Data        []byte
-	Freq        atomic.Uint32
+	Freq        uint32
 	ContentType string
 }
 
@@ -61,10 +61,9 @@ func (c *Cache) Get(file *string) *CacheEntry {
 			&sync.RWMutex{},
 			false,
 			nil,
-			atomic.Uint32{},
+			c.MinFreq.Load(),
 			"NOT ADDED",
 		}
-		entry.Freq.Store(c.MinFreq.Load())
 		c.Files[*file] = entry
 		c.Mu.Unlock()
 
@@ -72,7 +71,7 @@ func (c *Cache) Get(file *string) *CacheEntry {
 	}
 	defer c.Mu.RUnlock()
 
-	oldIdx := entry.Freq.Load()
+	oldIdx := entry.Freq
 	newIdx := (oldIdx + 1) & 63
 
 	c.LFUBuckets[oldIdx].lock.Lock()
@@ -90,17 +89,9 @@ func (c *Cache) Get(file *string) *CacheEntry {
 	}
 	c.LFUBuckets[minFreq].lock.RUnlock()
 
-	entry.Freq.Store(newIdx)
+	entry.Freq = newIdx
 
 	return entry
-}
-
-func (c *Cache) Update(file *string, data []byte, entry *CacheEntry, truncate bool) {
-	if entry.Data == nil || !truncate {
-		c.Add(file, data, entry)
-	} else {
-		entry.Data = data
-	}
 }
 
 func (c *Cache) Add(file *string, data []byte, entry *CacheEntry) {
@@ -120,30 +111,6 @@ func (c *Cache) Add(file *string, data []byte, entry *CacheEntry) {
 	copy(arr, entry.Data)
 	copy(arr[len(entry.Data):], data)
 	entry.Data = arr
-}
-
-func (c *Cache) Delete(file *string) {
-	c.Mu.Lock()
-	defer c.Mu.Unlock()
-
-	entry, exists := c.Files[*file]
-	if exists {
-		minFreq := c.MinFreq.Load()
-		c.LFUBuckets[minFreq].lock.Lock()
-		delete(c.LFUBuckets[minFreq].Bucket, *file)
-		c.LFUBuckets[minFreq].lock.Unlock()
-
-		c.LFUBuckets[minFreq].lock.RLock()
-		if entry.Freq.Load() == minFreq && len(c.LFUBuckets[minFreq].Bucket) == 0 {
-			c.findNextBucket()
-		}
-		c.LFUBuckets[minFreq].lock.RUnlock()
-
-		entry.Mu.Lock()
-		delete(c.Files, *file)
-		entry.Mu.Unlock()
-		c.Size.Add(^uint64(0))
-	}
 }
 
 func (c *Cache) evict() {
