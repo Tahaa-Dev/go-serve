@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -19,7 +20,7 @@ import (
 
 var logChan = make(chan utils.LogMessage, 32*1024)
 
-func startInternal(logChan chan<- utils.LogMessage, logThreshold int, cache *utils.Cache) {
+func startInternal(logChan chan<- utils.LogMessage, logThreshold int) {
 	serverMux := http.NewServeMux()
 
 	addPprofRoute := func(route string, fn func(http.ResponseWriter, *http.Request)) {
@@ -41,28 +42,6 @@ func startInternal(logChan chan<- utils.LogMessage, logThreshold int, cache *uti
 	addPprofRoute("GET /debug/pprof/symbol", pprof.Symbol)
 	addPprofRoute("GET /debug/pprof/trace", pprof.Trace)
 
-	addRoute := func(route string, fn func(*utils.StateResW, *http.Request, utils.ReqHandlerOpts)) {
-		serverMux.HandleFunc(route, func(w http.ResponseWriter, req *http.Request) {
-			state := utils.NewLogState()
-
-			utils.LogMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				fn(
-					&utils.StateResW{State: state, W: w},
-					r,
-					utils.ReqHandlerOpts{
-						Dir:   dir,
-						Cache: cache,
-						Index: index,
-					},
-				)
-			}), logChan, logThreshold, state, route+" Route",
-			).ServeHTTP(w, req)
-		})
-	}
-	addRoute("POST /", handlers.PostRequestHandler)
-	addRoute("PUT /", handlers.PutRequestHandler)
-	addRoute("DELETE /", handlers.DeleteRequestHandler)
-
 	server := &http.Server{
 		Addr:              "127.0.0.1:8081",
 		Handler:           serverMux,
@@ -70,10 +49,6 @@ func startInternal(logChan chan<- utils.LogMessage, logThreshold int, cache *uti
 	}
 
 	fmt.Fprintln(os.Stderr, "Started diagnostics server on http://localhost:8081/debug/pprof/")
-	fmt.Fprintln(
-		os.Stderr,
-		"Started internal routes server (POST /, PUT / and DELETE / routes) on http://localhost:8081",
-	)
 
 	err := server.ListenAndServe()
 	if err != nil {
@@ -94,6 +69,7 @@ var (
 	index        string
 	maxEntrySize uint
 	logThreshold int
+	keepalive    bool
 )
 
 func init() {
@@ -132,6 +108,7 @@ func init() {
 		"Warn",
 		"Set global log level threshold (go-serve -l Info)\n• Options: Error/Info/Warn",
 	)
+	flag.BoolVar(&keepalive, "k", false, "Toggle keepalive")
 	flag.Parse()
 
 	if err := sys.SetRLimit(rlimit); err != nil {
@@ -201,7 +178,7 @@ func main() {
 	go utils.WriteLogs(logChan, logBuf, 10, 2500)
 	defer close(logChan)
 
-	go startInternal(logChan, logThreshold, &cache)
+	go startInternal(logChan, logThreshold)
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf("%s:%s", host, port),
@@ -210,6 +187,15 @@ func main() {
 		ReadTimeout:       5 * time.Second, // a typical request body isn't very large
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       3 * time.Minute,
+		ConnState: func(c net.Conn, cs http.ConnState) {
+			if keepalive {
+				return
+			}
+
+			if cs == http.StateIdle {
+				_ = c.Close()
+			}
+		},
 	}
 
 	fmt.Fprintf(

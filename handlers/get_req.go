@@ -79,6 +79,7 @@ func RequestHandler(
 	}
 
 	fullPath := filepath.Join(opts.Dir, safePath)
+	// #nosec G703 -- path is pre-sanitized
 	openFile, err := os.OpenFile(fullPath, os.O_RDONLY, 0400)
 	if err != nil {
 		w.State.Error = err
@@ -106,6 +107,7 @@ func RequestHandler(
 		_ = openFile.Close()
 		fullPath = filepath.Join(fullPath, opts.Index)
 
+		// #nosec G703 -- path is pre-sanitized
 		openFile, err = os.OpenFile(fullPath, os.O_RDONLY, 0400)
 		if err != nil {
 			w.State.Error = err
