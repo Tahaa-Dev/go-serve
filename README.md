@@ -8,25 +8,21 @@ A simple and efficient concurrent static file server written in Go
 - Configurable file cache capacity to improve performance.
 - Configurable logging levels (Error, Warn, Info).
 - Built-in diagnostics server (pprof) accessible on port 8081.
-- Serves Multiple routes for different purposes:
-    - `GET /`: For serving static files. Does not require Authorization headers.
-    - `POST /`: For creating new files with the payload in request body and adding them to cache. Requires Authorization headers.
-    - `PUT /`: For updating existing files with the payload in request body and adding/updating them to cache. Requires Authorization headers.
-    - `DELETE /`: For deleting files from disk and cache. Requires Authorization headers.
 
- ## Installation
+## Installation
 
 1. Ensure you have Go installed on your system.
 2. Build the project:
-    - from root directory:
-       ```bash
-       go build -o go-serve .
-       ```
+   - from root directory:
 
-    - or using `go install`:
-       ```bash
-       go install github.com/Tahaa-Dev/go-serve@latest
-       ```
+     ```bash
+     go build -o go-serve .
+     ```
+
+   - or using `go install`:
+     ```bash
+     go install github.com/Tahaa-Dev/go-serve@latest
+     ```
 
 ## Usage
 
@@ -45,6 +41,7 @@ go-serve [options]
 - `-m`: Set system rlimit on Unix systems (default: 0 \[standard system rlimit\]).
 
 Example:
+
 ```bash
 go-serve -p 3000 -d ./web -c 128 -l Info -m 2048
 ```
